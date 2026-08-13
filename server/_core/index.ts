@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import { eq } from "drizzle-orm";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -13,6 +14,7 @@ import { ensureNusghProject } from "../nusgh/repository";
 import { ENV } from "./env";
 import { completeYouTubeOAuth, startYouTubeOAuth } from "../nusgh/youtube-oauth";
 import { registerArabicVoiceProvider } from "../nusgh/voice";
+import { users } from "../../drizzle/schema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -33,6 +35,18 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+async function resolveTelegramProjectId() {
+  const database = await import("../db");
+  const configuredOwner = await database.getUserByOpenId(ENV.ownerOpenId);
+  if (configuredOwner) return (await ensureNusghProject(configuredOwner.id)).id;
+
+  const db = await database.getDb();
+  if (!db) throw new Error("قاعدة بيانات المالك غير متاحة.");
+  const admins = await db.select().from(users).where(eq(users.role, "admin")).limit(2);
+  if (admins.length !== 1) throw new Error("تعذر تحديد مالك Telegram بأمان.");
+  return (await ensureNusghProject(admins[0].id)).id;
+}
+
 async function startServer() {
   registerArabicVoiceProvider();
   const app = express();
@@ -46,11 +60,7 @@ async function startServer() {
   app.get("/api/oauth/youtube/callback", completeYouTubeOAuth);
   app.post(
     "/api/telegram/webhook",
-    createTelegramWebhookHandler(async () => {
-      const owner = await (await import("../db")).getUserByOpenId(ENV.ownerOpenId);
-      if (!owner) throw new Error("مالك المشروع لم يسجل الدخول بعد.");
-      return (await ensureNusghProject(owner.id)).id;
-    })
+    createTelegramWebhookHandler(resolveTelegramProjectId)
   );
   // tRPC API
   app.use(

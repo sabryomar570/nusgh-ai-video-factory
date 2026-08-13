@@ -19,6 +19,10 @@ function config() {
   if (!clientId || !clientSecret || !redirectUri) throw new Error("YouTube OAuth غير مهيأ بالكامل.");
   return { clientId, clientSecret, redirectUri };
 }
+export function getYouTubeOAuthPublicConfig() {
+  const { clientId, redirectUri } = config();
+  return { clientId, redirectUri };
+}
 function key() { const raw = Buffer.from(process.env.YOUTUBE_TOKEN_ENCRYPTION_KEY ?? "", "base64"); if (raw.length !== 32) throw new Error("مفتاح تشفير YouTube غير صالح."); return raw; }
 export function encryptYouTubeToken(value: string) { const iv = randomBytes(12); const cipher = createCipheriv("aes-256-gcm", key(), iv); const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]); return { ciphertext: encrypted.toString("base64"), iv: iv.toString("base64"), authTag: cipher.getAuthTag().toString("base64") }; }
 export function decryptYouTubeToken(input: { ciphertext: string; iv: string; authTag: string }) { const decipher = createDecipheriv("aes-256-gcm", key(), Buffer.from(input.iv, "base64")); decipher.setAuthTag(Buffer.from(input.authTag, "base64")); return Buffer.concat([decipher.update(Buffer.from(input.ciphertext, "base64")), decipher.final()]).toString("utf8"); }
