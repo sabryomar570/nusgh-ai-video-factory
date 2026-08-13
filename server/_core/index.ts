@@ -8,6 +8,10 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { createTelegramWebhookHandler } from "../nusgh/telegram";
+import { ensureNusghProject } from "../nusgh/repository";
+import { ENV } from "./env";
+import { completeYouTubeOAuth, startYouTubeOAuth } from "../nusgh/youtube-oauth";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -36,6 +40,16 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  app.get("/api/oauth/youtube/start", startYouTubeOAuth);
+  app.get("/api/oauth/youtube/callback", completeYouTubeOAuth);
+  app.post(
+    "/api/telegram/webhook",
+    createTelegramWebhookHandler(async () => {
+      const owner = await (await import("../db")).getUserByOpenId(ENV.ownerOpenId);
+      if (!owner) throw new Error("مالك المشروع لم يسجل الدخول بعد.");
+      return (await ensureNusghProject(owner.id)).id;
+    })
+  );
   // tRPC API
   app.use(
     "/api/trpc",
