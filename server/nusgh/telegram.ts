@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import { createIdea, createVideoFromIdea, decideVideoApproval, getDashboardSnapshot, getProjectById, listProjectIdeas, listProjectJobs, listProjectProviders, listProjectSchedules, listProjectVideos, listVideosReadyForReview, setProjectAutomationMode } from "./repository";
 import { syncChannelAnalytics } from "./youtube-analytics";
+import { suggestGrowthExperiments } from "./growth-intelligence";
 
 type TelegramApiResponse<T> = { ok: boolean; result?: T; description?: string };
 type TelegramUpdate = { message?: { chat: { id: number }; from?: { id: number }; text?: string }; callback_query?: { id: string; from: { id: number }; message?: { chat: { id: number } }; data?: string } };
@@ -37,7 +38,8 @@ export function createTelegramWebhookHandler(projectIdProvider: () => Promise<nu
       else if (callback === "analytics" || command === "/analytics") {
         try {
           const report = await syncChannelAnalytics(projectId, 28);
-          await sendMessage(chatId, [`<b>تحليلات YouTube — آخر 28 يومًا</b>`, `المشاهدات: <b>${report.metrics.views}</b>`, `وقت المشاهدة بالدقائق: <b>${report.metrics.watchTimeMinutes}</b>`, `متوسط مدة المشاهدة: <b>${report.metrics.averageViewDurationSeconds}ث</b>`, `مشتركون مكتسبون: <b>${report.metrics.subscribersGained}</b>`, `الإعجابات: <b>${report.metrics.likes}</b>`, "هذه قراءة وتحليل فقط؛ لا تغير تلقائيًا قواعد المحتوى أو النشر."].join("\n"), mainKeyboard());
+          const recommendations = suggestGrowthExperiments(report.metrics).slice(0, 3);
+          await sendMessage(chatId, [`<b>تحليلات YouTube — آخر 28 يومًا</b>`, `المشاهدات: <b>${report.metrics.views}</b>`, `وقت المشاهدة بالدقائق: <b>${report.metrics.watchTimeMinutes}</b>`, `متوسط مدة المشاهدة: <b>${report.metrics.averageViewDurationSeconds}ث</b>`, `مشتركون مكتسبون: <b>${report.metrics.subscribersGained}</b>`, `الإعجابات: <b>${report.metrics.likes}</b>`, recommendations.length ? `\n<b>اقتراحات للمراجعة</b>\n${recommendations.map(item => `• ${item.suggestion}`).join("\n")}` : "", "\nهذه توصيات فقط؛ لا تغير تلقائيًا قواعد المحتوى أو النشر."].filter(Boolean).join("\n"), mainKeyboard());
         } catch (analyticsError) {
           await sendMessage(chatId, `<b>تعذر تحديث التحليلات الآن</b>\n${analyticsError instanceof Error ? analyticsError.message : "خطأ غير معروف"}\nلن يؤثر ذلك في وضع المراجعة أو النشر.`, mainKeyboard());
         }
