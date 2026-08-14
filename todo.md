@@ -52,7 +52,7 @@
 - [x] تقييم طلب AUTONOMOUS PRODUCTION MODE وتحديد حدود أتمتة لا تتجاوز المراجعة البشرية والقيود المتصلة الحالية
 - [x] تنفيذ Daily Idea Intelligence: بحث موثق، تقييم 100 نقطة، اختيار تلقائي لطابور مراجعة الأفكار
 - [x] تنفيذ Kill Switch وتشغيل/إيقاف الأتمتة المحافظ وحفظ الحالة في قاعدة البيانات
-- [ ] تنفيذ جدول نشر داخلي وتقارير Telegram يومية وتحليلات مجمعة دون نشر خارجي
+- [x] تنفيذ جدول نشر داخلي وتقارير Telegram يومية وتحليلات مجمعة دون نشر خارجي
 - [ ] اختبار مسار Research → Scoring → Script Draft → Fact Check → Queue → Internal Schedule → Telegram Report وتوثيق المحجوب
-- [ ] تنفيذ مرحلة Daily Research متعددة المصادر وتخزين source URLs وpublishers وexcerpts موثقة لكل فكرة قبل إدخالها لطابور المراجعة
+- [x] تنفيذ مرحلة Daily Research متعددة المصادر وتخزين source URLs وpublishers وexcerpts موثقة لكل فكرة قبل إدخالها لطابور المراجعة
 - [ ] إضافة تحقق تشغيلي يوثق أن Heartbeat المحافظ ينشئ Idea وVideo review وSource وتقرير Telegram فعليًا بعد النشر
