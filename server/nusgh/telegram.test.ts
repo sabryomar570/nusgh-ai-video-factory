@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { formatRenderManifestPreview, formatVideoWorkflowStatus, hasValidTelegramWebhookSecret, isAllowedTelegramOwner, verifyTelegramBot } from "./telegram";
+import { findMatchingPendingReview, formatRenderManifestPreview, formatVideoWorkflowStatus, hasValidTelegramWebhookSecret, isAllowedTelegramOwner, verifyTelegramBot } from "./telegram";
 
 describe("Telegram configuration", () => {
-  it("validates the configured bot token through Telegram getMe", async () => {
+  const shouldVerifyExternalProvider = process.env.NUSGH_VERIFY_EXTERNAL_PROVIDERS === "true";
+  it.skipIf(!shouldVerifyExternalProvider)("validates the configured bot token through Telegram getMe", async () => {
     const bot = await verifyTelegramBot();
     expect(bot.id).toBeTypeOf("number");
     expect(bot.first_name.length).toBeGreaterThan(0);
-  }, 20_000);
+  }, 22_000);
 
   it("rejects an incorrect webhook secret", () => {
     expect(hasValidTelegramWebhookSecret("incorrect-webhook-secret")).toBe(false);
@@ -28,5 +29,11 @@ describe("Telegram configuration", () => {
     expect(status).toContain("سبب التوقف");
     expect(status).toContain("render_manifest_incomplete");
     expect(status).toContain("أعلام السلامة");
+  });
+  it("refuses a review decision that no longer maps to a pending approval stage", () => {
+    const openReview = findMatchingPendingReview([{ videoId: 12, approvalType: "idea" }], 12, "idea");
+    const closedReview = findMatchingPendingReview([{ videoId: 12, approvalType: "idea" }], 12, "final_video");
+    expect(openReview).toEqual({ videoId: 12, approvalType: "idea" });
+    expect(closedReview).toBeUndefined();
   });
 });

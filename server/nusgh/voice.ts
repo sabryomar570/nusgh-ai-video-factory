@@ -136,14 +136,15 @@ async function synthesizeTimedSegment(input: {
     response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(input.voiceId)}/with-timestamps?output_format=mp3_44100_128`, {
       method: "POST",
       headers: { "content-type": "application/json", "xi-api-key": ENV.elevenLabsApiKey! },
+      signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({
         text: input.text,
         model_id: input.modelId,
         voice_settings: { stability: input.stability, similarity_boost: input.similarityBoost, style: input.style, use_speaker_boost: true },
       }),
     });
-  } catch {
-    return { ok: false, error: "تعذر الاتصال بـ ElevenLabs. سيُعاد تشغيل المهمة وفق سياسة الطابور." };
+  } catch (error) {
+    return { ok: false, error: error instanceof DOMException && error.name === "TimeoutError" ? "انتهت مهلة ElevenLabs قبل توليد الصوت. سيُعاد تشغيل المهمة وفق سياسة الطابور." : "تعذر الاتصال بـ ElevenLabs. سيُعاد تشغيل المهمة وفق سياسة الطابور." };
   }
 
   if (!response.ok) {
