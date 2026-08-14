@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createArabicCaptionCues, createArabicCaptionCuesFromTiming, ElevenLabsArabicTtsAdapter, registerArabicVoiceProvider, splitArabicNarration } from "./voice";
+import { createArabicCaptionCues, createArabicCaptionCuesFromTiming, ElevenLabsArabicTtsAdapter, registerArabicVoiceProvider, renderArabicSrt, renderArabicWebVtt, splitArabicNarration } from "./voice";
 import { providerRegistry } from "./providers";
 
 describe("Arabic voice layer", () => {
@@ -29,5 +29,10 @@ describe("Arabic voice layer", () => {
     expect(result.ok).toBe(false);
     expect(result.requiresHumanReview).toBe(true);
     expect(result.error).toContain("حد الطلبات");
+  });
+  it("exports RTL timing in SRT and WebVTT formats", () => {
+    const cues = [{ startTimeMs: 0, endTimeMs: 1500, text: "فكرة واحدة واضحة", direction: "rtl" as const, language: "ar" as const }];
+    expect(renderArabicSrt(cues)).toContain("00:00:00,000 --> 00:00:01,500");
+    expect(renderArabicWebVtt(cues)).toContain("WEBVTT\n\n00:00:00.000 --> 00:00:01.500");
   });
 });

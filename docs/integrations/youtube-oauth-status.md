@@ -13,3 +13,11 @@ Keep the channel owner's Google account in the OAuth testing audience while the 
 ## Safety state
 
 NUSGH does not consider YouTube connected until the callback has encrypted and persisted both the access and refresh token, and then resolves the channel through the official YouTube Data API.
+
+## Analytics API status
+
+The official YouTube Analytics read-only sync is implemented and its protected runtime path was invoked after the channel connection. Google returned a precondition error that the **YouTube Analytics API** is disabled for Google project `587899281760`. Enable it at:
+
+`https://console.developers.google.com/apis/api/youtubeanalytics.googleapis.com/overview?project=587899281760`
+
+After Google propagates this change, NUSGH can create analytics snapshots; it will not upload, publish, or alter channel settings while fetching those metrics.

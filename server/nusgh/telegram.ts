@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import { createIdea, createVideoFromIdea, decideVideoApproval, getDashboardSnapshot, getProjectById, listProjectIdeas, listProjectJobs, listProjectProviders, listProjectSchedules, listProjectVideos, listVideosReadyForReview, setProjectAutomationMode } from "./repository";
+import { syncChannelAnalytics } from "./youtube-analytics";
 
 type TelegramApiResponse<T> = { ok: boolean; result?: T; description?: string };
 type TelegramUpdate = { message?: { chat: { id: number }; from?: { id: number }; text?: string }; callback_query?: { id: string; from: { id: number }; message?: { chat: { id: number } }; data?: string } };
@@ -32,7 +33,15 @@ export function createTelegramWebhookHandler(projectIdProvider: () => Promise<nu
       else if (callback === "preview") { const ready = await listVideosReadyForReview(projectId); if (!ready.length) await sendMessage(chatId, "<b>المعاينة</b>\nلا توجد نسخة جاهزة للمراجعة بعد.", mainKeyboard()); else await sendVideoApprovalRequest(chatId, { videoId: ready[0].id, title: ready[0].title, qualityScore: ready[0].qualityScore }); }
       else if (callback === "scheduler") { const rows = await listProjectSchedules(projectId); await sendMessage(chatId, rows.length ? `<b>الجدولة</b>\n${rows.map(schedule => `• ${schedule.name} — <b>${schedule.isEnabled ? "مفعلة" : "متوقفة"}</b>`).join("\n")}` : "<b>الجدولة</b>\nلا توجد مهمة دورية مفعلة. لن تُنشأ جدولة قبل نشر التطبيق وتهيئة Heartbeat.", mainKeyboard()); }
       else if (callback === "settings") { const project = await getProjectById(projectId); await sendMessage(chatId, `<b>الإعدادات النشطة</b>\nاللغة: العربية\nالمنطقة الزمنية: ${project?.timezone ?? "Africa/Cairo"}\nالأتمتة: <b>${project?.automationMode ?? "full_review"}</b>\nالموسيقى: <b>OFF</b>`, mainKeyboard()); }
-      else if (callback === "youtube" || callback === "analytics") await sendMessage(chatId, "<b>الحالة الرسمية</b>\nربط YouTube OAuth والتحليلات غير مهيأين بعد. لن يُدّعى اتصال أو نشر قبل توفير اعتماد OAuth رسمي وتفعيل الموصل.", mainKeyboard());
+      else if (callback === "youtube") await sendMessage(chatId, "<b>YouTube</b>\nالقناة متصلة عبر OAuth خادمي مشفر. الرفع والنشر ما زالا مقيدين بالمراجعة البشرية الصريحة.", mainKeyboard());
+      else if (callback === "analytics" || command === "/analytics") {
+        try {
+          const report = await syncChannelAnalytics(projectId, 28);
+          await sendMessage(chatId, [`<b>تحليلات YouTube — آخر 28 يومًا</b>`, `المشاهدات: <b>${report.metrics.views}</b>`, `وقت المشاهدة بالدقائق: <b>${report.metrics.watchTimeMinutes}</b>`, `متوسط مدة المشاهدة: <b>${report.metrics.averageViewDurationSeconds}ث</b>`, `مشتركون مكتسبون: <b>${report.metrics.subscribersGained}</b>`, `الإعجابات: <b>${report.metrics.likes}</b>`, "هذه قراءة وتحليل فقط؛ لا تغير تلقائيًا قواعد المحتوى أو النشر."].join("\n"), mainKeyboard());
+        } catch (analyticsError) {
+          await sendMessage(chatId, `<b>تعذر تحديث التحليلات الآن</b>\n${analyticsError instanceof Error ? analyticsError.message : "خطأ غير معروف"}\nلن يؤثر ذلك في وضع المراجعة أو النشر.`, mainKeyboard());
+        }
+      }
       else if (callback === "automation_mode" || command === "/automation") await sendMessage(chatId, "<b>تغيير وضع الأتمتة</b>\nالمراجعة الكاملة هي الوضع الافتراضي. تتطلب الأوضاع الأعلى تأكيدًا إضافيًا، ولا تتجاوز أعلام السلامة والمراجعة البشرية.", automationKeyboard());
       else if (callback?.startsWith("request_mode:")) { const target = callback.split(":")[1] as "semi_auto" | "conditional_auto"; await sendMessage(chatId, `أنت على وشك تفعيل <b>${target}</b>. سيظل أي فشل للسلامة أو التحقق أو الحقوق أو الجودة متوقفًا للمراجعة البشرية.`, automationKeyboard(target)); }
       else if (callback?.startsWith("confirm_mode:")) { const target = callback.split(":")[1] as "full_review" | "semi_auto" | "conditional_auto"; const project = await setProjectAutomationMode(projectId, target); await sendMessage(chatId, `تم تغيير وضع الأتمتة إلى <b>${project?.automationMode ?? target}</b>.`, mainKeyboard()); }

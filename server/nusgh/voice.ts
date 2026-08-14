@@ -71,6 +71,23 @@ export function createArabicCaptionCuesFromTiming(alignment: ElevenLabsAlignment
   return cues.filter(cue => cue.endTimeMs > cue.startTimeMs);
 }
 
+function subtitleTimestamp(milliseconds: number, separator: "," | ".") {
+  const total = Math.max(0, Math.round(milliseconds));
+  const hours = Math.floor(total / 3_600_000);
+  const minutes = Math.floor((total % 3_600_000) / 60_000);
+  const seconds = Math.floor((total % 60_000) / 1_000);
+  const fraction = String(total % 1_000).padStart(3, "0");
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}${separator}${fraction}`;
+}
+
+export function renderArabicSrt(cues: CaptionCue[]) {
+  return cues.map((cue, index) => `${index + 1}\n${subtitleTimestamp(cue.startTimeMs, ",")} --> ${subtitleTimestamp(cue.endTimeMs, ",")}\n${cue.text}`).join("\n\n") + (cues.length ? "\n" : "");
+}
+
+export function renderArabicWebVtt(cues: CaptionCue[]) {
+  return `WEBVTT\n\n${cues.map(cue => `${subtitleTimestamp(cue.startTimeMs, ".")} --> ${subtitleTimestamp(cue.endTimeMs, ".")}\n<c.ar>${cue.text}</c>`).join("\n\n")}${cues.length ? "\n" : ""}`;
+}
+
 type ElevenLabsSynthesisInput = { text?: unknown; voiceId?: unknown; modelId?: unknown; stability?: unknown; similarityBoost?: unknown; style?: unknown };
 
 function textInput(value: unknown) {
@@ -133,11 +150,14 @@ export class ElevenLabsArabicTtsAdapter implements ProviderAdapter {
       const captionCues = createArabicCaptionCuesFromTiming(alignment);
       const durationMs = Math.max(0, ...((alignment?.character_end_times_seconds ?? []).map(value => Math.round(value * 1000))));
       const saved = await storagePut(`projects/${context.projectId}/videos/${context.videoId ?? "unassigned"}/audio/narration.mp3`, audio, "audio/mpeg");
+      const subtitles = { srt: renderArabicSrt(captionCues), vtt: renderArabicWebVtt(captionCues) };
+      const srtFile = await storagePut(`projects/${context.projectId}/videos/${context.videoId ?? "unassigned"}/captions/ar.srt`, Buffer.from(subtitles.srt, "utf8"), "application/x-subrip");
+      const vttFile = await storagePut(`projects/${context.projectId}/videos/${context.videoId ?? "unassigned"}/captions/ar.vtt`, Buffer.from(subtitles.vtt, "utf8"), "text/vtt; charset=utf-8");
       if (context.videoId) {
         const db = await getDb();
-        if (db) await db.insert(audioTracks).values({ videoId: context.videoId, audioType: "narration", provider: this.key, voiceId, storageKey: saved.key, publicUrl: saved.url, durationMs: durationMs || null, isMusicLike: false, reviewStatus: "pending", metadata: { modelId: textInput(input.modelId) || "eleven_multilingual_v2", language: "ar", captionCues, requiresCommercialLicenseReview: true } });
+        if (db) await db.insert(audioTracks).values({ videoId: context.videoId, audioType: "narration", provider: this.key, voiceId, storageKey: saved.key, publicUrl: saved.url, durationMs: durationMs || null, isMusicLike: false, reviewStatus: "pending", metadata: { modelId: textInput(input.modelId) || "eleven_multilingual_v2", language: "ar", captionCues, captionFiles: { srt: srtFile.url, vtt: vttFile.url }, requiresCommercialLicenseReview: true } });
       }
-      return { ok: true, requiresHumanReview: true, output: { storageKey: saved.key, publicUrl: saved.url, contentType: "audio/mpeg", provider: this.key, voiceId, durationMs, captionCues, requiresCommercialLicenseReview: true } };
+      return { ok: true, requiresHumanReview: true, output: { storageKey: saved.key, publicUrl: saved.url, contentType: "audio/mpeg", provider: this.key, voiceId, durationMs, captionCues, captionFiles: { srt: srtFile.url, vtt: vttFile.url }, requiresCommercialLicenseReview: true } };
     } catch {
       return { ok: false, error: "تم توليد الصوت لكن تعذر حفظه أو تسجيله. سيُعاد تشغيل المهمة دون إيقاف النظام." };
     }
