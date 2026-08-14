@@ -22,6 +22,10 @@ export function normalizeAnalyticsRow(row: number[] | undefined) {
   return { views, watchTimeMinutes, averageViewDurationSeconds: Math.round(averageViewDurationSeconds), subscribersGained, likes, comments, shares };
 }
 
+export function youtubeUpstreamFailureMessage(service: "تجديد رمز YouTube" | "تحليلات YouTube", error: unknown) {
+  return error instanceof DOMException && error.name === "TimeoutError" ? `انتهت مهلة الاتصال بـ${service}. لم يُنشأ نشر أو تعديل للقناة؛ أعد المحاولة بعد مراجعة اتصال المزود.` : `تعذر الاتصال بـ${service}. لم يُنشأ نشر أو تعديل للقناة؛ أعد المحاولة بعد مراجعة اتصال المزود.`;
+}
+
 function parseEnvelope(value: string): TokenEnvelope {
   const parsed = JSON.parse(value) as Partial<TokenEnvelope>;
   if (!parsed.ciphertext || !parsed.iv || !parsed.authTag) throw new Error("سجل رمز YouTube المشفر غير صالح.");
@@ -40,7 +44,8 @@ async function tokenForChannel(channelId: number) {
   const clientId = process.env.YOUTUBE_CLIENT_ID;
   const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
   if (!clientId || !clientSecret) throw new Error("إعداد YouTube OAuth غير مكتمل لتجديد الرمز.");
-  const response = await fetch(GOOGLE_TOKEN_URL, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }) });
+  let response: globalThis.Response;
+  try { response = await fetch(GOOGLE_TOKEN_URL, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, signal: AbortSignal.timeout(20_000), body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }) }); } catch (error) { throw new Error(youtubeUpstreamFailureMessage("تجديد رمز YouTube", error)); }
   const refreshed = await response.json() as { access_token?: string; expires_in?: number };
   if (!response.ok || !refreshed.access_token) throw new Error("تعذر تجديد رمز YouTube؛ يتطلب الربط مراجعة المالك.");
   const encrypted = encryptYouTubeToken(refreshed.access_token);
@@ -57,7 +62,8 @@ export async function syncChannelAnalytics(projectId: number, days = 28) {
   const window = analyticsWindow(days);
   const url = new URL(ANALYTICS_URL);
   url.search = new URLSearchParams({ ids: "channel==MINE", startDate: window.startDate, endDate: window.endDate, metrics: METRICS.join(",") }).toString();
-  const response = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } });
+  let response: globalThis.Response;
+  try { response = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(20_000) }); } catch (error) { throw new Error(youtubeUpstreamFailureMessage("تحليلات YouTube", error)); }
   const payload = await response.json() as AnalyticsApiResponse;
   if (!response.ok) throw new Error(`تعذر جلب تحليلات YouTube: ${payload.error?.message ?? response.status}`);
   const metrics = normalizeAnalyticsRow(payload.rows?.[0]);
