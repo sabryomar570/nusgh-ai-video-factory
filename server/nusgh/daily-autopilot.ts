@@ -3,10 +3,31 @@ import { eq } from "drizzle-orm";
 import { schedules } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { sdk } from "../_core/sdk";
-import { runDueJobsManually } from "./worker";
+import { fetchDailyTrendCandidates, nextInternalPublishingSlot } from "./conservative-intelligence";
+import { createConservativeIdeaReview, getConservativeAutopilotSettings } from "./repository";
+import { sendConservativeDailyReport } from "./telegram";
 
 export function canRunScheduledAutopilot(user: { isCron?: boolean; taskUid?: string }) {
   return Boolean(user.isCron && user.taskUid);
+}
+
+export function conservativeAutopilotSkipReason(settings: { enabled: boolean; killSwitch: boolean }) {
+  if (settings.killSwitch) return "kill_switch" as const;
+  if (!settings.enabled) return "disabled" as const;
+  return null;
+}
+
+export async function runConservativeDailyAutopilot(projectId: number, now = new Date()) {
+  const settings = await getConservativeAutopilotSettings(projectId);
+  const skipped = conservativeAutopilotSkipReason(settings);
+  if (skipped) return { mode: "conservative_review_gated" as const, skipped, created: [], candidateCount: 0 };
+  const candidates = await fetchDailyTrendCandidates();
+  const created = [] as Array<{ ideaId: number; videoId: number; score: number; scheduledFor: string }>;
+  for (const candidate of candidates.slice(0, settings.dailyIdeaLimit)) {
+    const result = await createConservativeIdeaReview({ projectId, candidate, scheduledFor: nextInternalPublishingSlot(now, settings.internalPublishingHours, settings.timezone) });
+    if (result.created) created.push({ ideaId: result.idea.id, videoId: result.video.id, score: candidate.score, scheduledFor: result.video.scheduledFor?.toISOString() ?? "" });
+  }
+  return { mode: "conservative_review_gated" as const, created, candidateCount: candidates.length, settings: { dailyIdeaLimit: settings.dailyIdeaLimit, timezone: settings.timezone } };
 }
 
 export async function dailyAutopilotHandler(req: Request, res: Response) {
@@ -23,11 +44,14 @@ export async function dailyAutopilotHandler(req: Request, res: Response) {
     const schedule = (await db.select().from(schedules).where(eq(schedules.scheduleCronTaskUid, user.taskUid!)).limit(1))[0];
     if (!schedule) return res.json({ ok: true, skipped: "orphan" });
     if (!schedule.isEnabled) return res.json({ ok: true, skipped: "disabled" });
-    const limitValue = schedule.configuration?.batchLimit;
-    const limit = typeof limitValue === "number" ? Math.max(1, Math.min(10, Math.floor(limitValue))) : 5;
-    const result = await runDueJobsManually(schedule.projectId, limit);
+    const result = await runConservativeDailyAutopilot(schedule.projectId);
     await db.update(schedules).set({ lastRunAt: new Date() }).where(eq(schedules.id, schedule.id));
-    return res.json({ ok: true, mode: "queue_only_review_gated", result });
+    const ownerChatId = Number(process.env.TELEGRAM_OWNER_USER_ID);
+    let reportDelivery = "not_configured";
+    if (Number.isSafeInteger(ownerChatId) && ownerChatId > 0) {
+      try { await sendConservativeDailyReport(ownerChatId, result); reportDelivery = "sent"; } catch { reportDelivery = "failed"; }
+    }
+    return res.json({ ok: true, mode: "conservative_review_gated", result, reportDelivery });
   } catch (error) {
     return res.status(500).json({ error: error instanceof Error ? error.message : "daily_autopilot_failed", timestamp: new Date().toISOString() });
   }

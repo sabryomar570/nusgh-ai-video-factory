@@ -12,6 +12,8 @@ import {
   schedules,
   scenes,
   scripts,
+  settings,
+  sources,
   videos,
   youtubeChannels,
   type Project,
@@ -19,9 +21,31 @@ import {
 import { getDb } from "../db";
 import { reviewAsset, type AssetReviewInput } from "./asset-policy";
 import { enqueueJob } from "./queue";
+import { CONSERVATIVE_AUTOPILOT_DEFAULTS, type ScoredResearchCandidate } from "./conservative-intelligence";
 import { buildNusghRenderManifestFromRecordedArtifacts } from "./render-manifest";
 
 export const DEFAULT_PROJECT_SLUG = "nusgh-primary";
+export const CONSERVATIVE_AUTOPILOT_SETTING_KEY = "conservative_autopilot";
+
+export type ConservativeAutopilotSettings = {
+  enabled: boolean;
+  killSwitch: boolean;
+  dailyIdeaLimit: number;
+  timezone: string;
+  internalPublishingHours: number[];
+};
+
+function normalizeConservativeAutopilotSettings(value: unknown): ConservativeAutopilotSettings {
+  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const rawHours = Array.isArray(input.internalPublishingHours) ? input.internalPublishingHours.filter((hour): hour is number => typeof hour === "number" && Number.isInteger(hour) && hour >= 0 && hour <= 23) : [];
+  return {
+    enabled: typeof input.enabled === "boolean" ? input.enabled : CONSERVATIVE_AUTOPILOT_DEFAULTS.enabled,
+    killSwitch: typeof input.killSwitch === "boolean" ? input.killSwitch : CONSERVATIVE_AUTOPILOT_DEFAULTS.killSwitch,
+    dailyIdeaLimit: typeof input.dailyIdeaLimit === "number" ? Math.max(1, Math.min(3, Math.floor(input.dailyIdeaLimit))) : CONSERVATIVE_AUTOPILOT_DEFAULTS.dailyIdeaLimit,
+    timezone: typeof input.timezone === "string" && input.timezone ? input.timezone : CONSERVATIVE_AUTOPILOT_DEFAULTS.timezone,
+    internalPublishingHours: rawHours.length ? rawHours : [...CONSERVATIVE_AUTOPILOT_DEFAULTS.internalPublishingHours],
+  };
+}
 
 export async function ensureNusghProject(ownerUserId: number): Promise<Project> {
   const db = await getDb();
@@ -61,13 +85,14 @@ export async function getDashboardSnapshot(projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
 
-  const [videoRows, jobRows, providerRows, ideaRows, latestVideos, latestJobs] = await Promise.all([
+  const [videoRows, jobRows, providerRows, ideaRows, latestVideos, latestJobs, autopilotSetting] = await Promise.all([
     db.select({ status: videos.status, total: count() }).from(videos).where(eq(videos.projectId, projectId)).groupBy(videos.status),
     db.select({ status: jobs.status, total: count() }).from(jobs).where(eq(jobs.projectId, projectId)).groupBy(jobs.status),
     db.select().from(providers).where(eq(providers.projectId, projectId)).orderBy(asc(providers.providerType)),
     db.select({ total: count() }).from(ideas).where(eq(ideas.projectId, projectId)),
     db.select().from(videos).where(eq(videos.projectId, projectId)).orderBy(desc(videos.updatedAt)).limit(6),
     db.select().from(jobs).where(eq(jobs.projectId, projectId)).orderBy(desc(jobs.updatedAt)).limit(6),
+    db.select().from(settings).where(and(eq(settings.projectId, projectId), eq(settings.key, CONSERVATIVE_AUTOPILOT_SETTING_KEY))).limit(1),
   ]);
 
   return {
@@ -77,7 +102,29 @@ export async function getDashboardSnapshot(projectId: number) {
     ideaCount: Number(ideaRows[0]?.total ?? 0),
     latestVideos,
     latestJobs,
+    automation: normalizeConservativeAutopilotSettings(autopilotSetting[0]?.value),
   };
+}
+
+export async function getConservativeAutopilotSettings(projectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const row = (await db.select().from(settings).where(and(eq(settings.projectId, projectId), eq(settings.key, CONSERVATIVE_AUTOPILOT_SETTING_KEY))).limit(1))[0];
+  return normalizeConservativeAutopilotSettings(row?.value);
+}
+
+export async function updateConservativeAutopilotSettings(projectId: number, patch: Partial<ConservativeAutopilotSettings>, updatedByUserId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const current = await getConservativeAutopilotSettings(projectId);
+  const next = normalizeConservativeAutopilotSettings({ ...current, ...patch });
+  await db.insert(settings).values({ projectId, key: CONSERVATIVE_AUTOPILOT_SETTING_KEY, value: next, updatedByUserId }).onDuplicateKeyUpdate({ set: { value: next, updatedByUserId } });
+  await createAuditEntry({ projectId, actorUserId: updatedByUserId, actorType: updatedByUserId ? "owner" : "system", action: "updated", entityType: "automation_settings", entityId: CONSERVATIVE_AUTOPILOT_SETTING_KEY, summary: next.killSwitch ? "أوقف Kill Switch بدء الأتمتة المحافظة الجديدة." : "تم تحديث إعدادات الأتمتة المحافظة.", context: { enabled: next.enabled, killSwitch: next.killSwitch, dailyIdeaLimit: next.dailyIdeaLimit } });
+  return next;
+}
+
+export async function setConservativeKillSwitch(projectId: number, enabled: boolean, updatedByUserId?: number) {
+  return updateConservativeAutopilotSettings(projectId, { killSwitch: enabled }, updatedByUserId);
 }
 
 export async function listProjectVideos(projectId: number) {
@@ -281,6 +328,37 @@ export async function createIdea(input: {
   await db.insert(ideas).values({ ...input, source: "manual" });
   const created = await db.select().from(ideas).where(eq(ideas.projectId, input.projectId)).orderBy(desc(ideas.id)).limit(1);
   return created[0];
+}
+
+export async function createConservativeIdeaReview(input: { projectId: number; candidate: ScoredResearchCandidate; scheduledFor: Date }) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const duplicate = (await db.select().from(ideas).where(and(eq(ideas.projectId, input.projectId), eq(ideas.title, input.candidate.topic))).limit(1))[0];
+  if (duplicate) return { created: false as const, idea: duplicate };
+  await db.insert(ideas).values({
+    projectId: input.projectId,
+    title: input.candidate.topic,
+    centralIdea: `فكرة يومية مرشحة تلقائيًا حول: ${input.candidate.topic}`,
+    contentPillar: "Everyday Psychology & Hidden Behavior",
+    targetFormat: "short",
+    hook: `ما الذي يفسر ${input.candidate.topic}؟`,
+    rationale: "مرشح محافظ مبني على إشارة اتجاه عامة؛ يحتاج بحثًا ومراجعة بشرية قبل أي ادعاء أو إنتاج.",
+    status: "pending",
+    riskLevel: input.candidate.riskLevel,
+    confidence: "medium",
+    score: input.candidate.score,
+    source: "daily_trends_rss",
+    metadata: { scoring: { trendSignal: input.candidate.trendSignal, freshness: input.candidate.freshness, audienceRelevance: input.candidate.audienceRelevance, competitionOpportunity: input.candidate.competitionOpportunity, viralPotential: input.candidate.viralPotential, retentionPotential: input.candidate.retentionPotential, productionFeasibility: input.candidate.productionFeasibility }, sourceUrl: input.candidate.sourceUrl, publisher: input.candidate.publisher },
+  });
+  const idea = (await db.select().from(ideas).where(eq(ideas.projectId, input.projectId)).orderBy(desc(ideas.id)).limit(1))[0];
+  if (!idea) throw new Error("تعذر حفظ الفكرة المرشحة.");
+  await db.insert(videos).values({ projectId: input.projectId, ideaId: idea.id, title: idea.title, videoType: "short", status: "awaiting_review", riskLevel: input.candidate.riskLevel, targetDurationSeconds: 55, automationMode: "full_review", requiresHumanReview: true, scheduledFor: input.scheduledFor });
+  const video = (await db.select().from(videos).where(eq(videos.projectId, input.projectId)).orderBy(desc(videos.id)).limit(1))[0];
+  if (!video) throw new Error("تعذر إنشاء مشروع مراجعة الفكرة.");
+  await db.insert(sources).values({ projectId: input.projectId, videoId: video.id, title: input.candidate.topic, sourceUrl: input.candidate.sourceUrl, publisher: input.candidate.publisher, sourceType: "trend_signal", excerpt: "إشارة اكتشاف موضوع فقط؛ ليست إثباتًا لادعاء أو حقيقة.", reliabilityScore: 45, metadata: { role: "discovery_only" } });
+  await db.insert(approvals).values({ projectId: input.projectId, videoId: video.id, approvalType: "idea", status: "pending", requestedBy: "conservative_daily_autopilot" });
+  await createAuditEntry({ projectId: input.projectId, actorType: "system", action: "review_requested", entityType: "video", entityId: String(video.id), summary: "أضيفت فكرة يومية تلقائيًا إلى طابور مراجعة الفكرة دون إنتاج أو نشر.", context: { ideaId: idea.id, score: input.candidate.score, scheduledFor: input.scheduledFor.toISOString(), sourceUrl: input.candidate.sourceUrl } });
+  return { created: true as const, idea, video };
 }
 
 export async function createVideoFromIdea(input: {

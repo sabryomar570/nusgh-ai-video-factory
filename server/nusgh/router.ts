@@ -9,12 +9,16 @@ import {
   createIdea,
   createVideoFromIdea,
   ensureNusghProject,
+  getConservativeAutopilotSettings,
   getDashboardSnapshot,
   listProjectJobs,
   listProjectProviders,
   listProjectVideos,
   prepareNarrationJob,
+  setConservativeKillSwitch,
+  updateConservativeAutopilotSettings,
 } from "./repository";
+import { runConservativeDailyAutopilot } from "./daily-autopilot";
 import { syncChannelAnalytics } from "./youtube-analytics";
 import { runDueJobsManually } from "./worker";
 
@@ -42,6 +46,26 @@ export const nusghRouter = router({
   providers: adminProcedure.query(async ({ ctx }) => {
     const project = await projectForCaller(ctx.user.id);
     return listProjectProviders(project.id);
+  }),
+  conservativeAutopilot: adminProcedure.query(async ({ ctx }) => {
+    const project = await projectForCaller(ctx.user.id);
+    return getConservativeAutopilotSettings(project.id);
+  }),
+  updateConservativeAutopilot: adminProcedure
+    .input(z.object({ enabled: z.boolean().optional(), dailyIdeaLimit: z.number().int().min(1).max(3).optional(), internalPublishingHours: z.array(z.number().int().min(0).max(23)).min(1).max(6).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await projectForCaller(ctx.user.id);
+      return updateConservativeAutopilotSettings(project.id, input, ctx.user.id);
+    }),
+  setConservativeKillSwitch: adminProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await projectForCaller(ctx.user.id);
+      return setConservativeKillSwitch(project.id, input.enabled, ctx.user.id);
+    }),
+  runConservativeAutopilot: adminProcedure.mutation(async ({ ctx }) => {
+    const project = await projectForCaller(ctx.user.id);
+    return runConservativeDailyAutopilot(project.id);
   }),
   syncAnalytics: adminProcedure
     .input(z.object({ days: z.number().int().min(1).max(90).default(28) }))

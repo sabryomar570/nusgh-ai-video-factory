@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createVideoEntryUrl, findMatchingPendingReview, formatRenderManifestPreview, formatVideoWorkflowStatus, formatYouTubeConnectionStatus, hasValidTelegramWebhookSecret, isAllowedTelegramOwner, verifyTelegramBot } from "./telegram";
+import { createVideoEntryUrl, findMatchingPendingReview, formatConservativeDailyReport, formatRenderManifestPreview, formatVideoWorkflowStatus, formatYouTubeConnectionStatus, hasValidTelegramWebhookSecret, isAllowedTelegramOwner, verifyTelegramBot } from "./telegram";
 
 describe("Telegram configuration", () => {
   const shouldVerifyExternalProvider = process.env.NUSGH_VERIFY_EXTERNAL_PROVIDERS === "true";
@@ -44,5 +44,10 @@ describe("Telegram configuration", () => {
   });
   it("routes the create-video button to the actual dashboard form instead of a command-only placeholder", () => {
     expect(createVideoEntryUrl()).toBe("https://nusghvideo-fqf8exqq.manus.space/?create=video");
+  });
+  it("formats a conservative daily report without claiming production or publication", () => {
+    const report = formatConservativeDailyReport({ candidateCount: 4, created: [{ ideaId: 9, videoId: 11, score: 82, scheduledFor: "2026-08-14T16:00:00.000Z" }] });
+    expect(report).toContain("82/100");
+    expect(report).toContain("لم يُنشأ صوت أو رندر أو نشر");
   });
 });

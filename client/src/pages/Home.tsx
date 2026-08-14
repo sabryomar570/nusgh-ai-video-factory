@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { CircleAlert, Clapperboard, Cpu, FileCheck2, Loader2, Plus, Sparkles, Timer, Waves } from "lucide-react";
+import { CircleAlert, Clapperboard, Cpu, FileCheck2, Loader2, Pause, Play, Plus, ShieldOff, Sparkles, Timer, Waves } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -21,10 +21,15 @@ export default function Home() {
   const dashboard = trpc.nusgh.dashboard.useQuery(undefined, { enabled: Boolean(user), retry: false });
   const createIdea = trpc.nusgh.createIdea.useMutation();
   const createVideo = trpc.nusgh.createVideo.useMutation();
+  const runConservativeAutopilot = trpc.nusgh.runConservativeAutopilot.useMutation();
+  const setConservativeKillSwitch = trpc.nusgh.setConservativeKillSwitch.useMutation();
+  const updateConservativeAutopilot = trpc.nusgh.updateConservativeAutopilot.useMutation();
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<"short" | "long_form">("short");
   const [title, setTitle] = useState("");
   const [concept, setConcept] = useState("");
+  const [dailyIdeaLimit, setDailyIdeaLimit] = useState("1");
+  const [internalHours, setInternalHours] = useState("11,16,21");
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("create") === "video") setOpen(true);
@@ -46,6 +51,40 @@ export default function Home() {
   const providers = snapshot?.providerRows ?? [];
   const totalJobs = Object.values(snapshot?.jobStatusCounts ?? {}).reduce((sum, value) => sum + Number(value), 0);
   const activeJobs = Number(snapshot?.jobStatusCounts.running ?? 0) + Number(snapshot?.jobStatusCounts.retrying ?? 0);
+  const automation = snapshot?.automation;
+
+  useEffect(() => {
+    if (!automation) return;
+    setDailyIdeaLimit(String(automation.dailyIdeaLimit));
+    setInternalHours(automation.internalPublishingHours.join(","));
+  }, [automation?.dailyIdeaLimit, automation?.internalPublishingHours]);
+
+  const runDailyIntelligence = async () => {
+    try {
+      const result = await runConservativeAutopilot.mutateAsync();
+      await utils.nusgh.dashboard.invalidate();
+      toast.success(result.skipped ? `لم يبدأ البحث: ${result.skipped}` : `اكتمل البحث المحافظ: ${result.created.length} فكرة أضيفت للمراجعة.`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر تشغيل البحث المحافظ."); }
+  };
+  const toggleKillSwitch = async () => {
+    const next = !automation?.killSwitch;
+    if (next && !window.confirm("سيمنع Kill Switch أي أفكار أو مهام محافظة جديدة. هل تريد الإيقاف؟")) return;
+    try {
+      await setConservativeKillSwitch.mutateAsync({ enabled: next });
+      await utils.nusgh.dashboard.invalidate();
+      toast.success(next ? "تم إيقاف بدء الأتمتة الجديدة." : "تمت إعادة إتاحة الأتمتة المحافظة.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر تحديث Kill Switch."); }
+  };
+  const saveAutomationSettings = async () => {
+    const hours = internalHours.split(",").map(value => Number(value.trim())).filter(value => Number.isInteger(value) && value >= 0 && value <= 23);
+    const limit = Number(dailyIdeaLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 3 || !hours.length) return toast.error("حدد من 1 إلى 3 أفكار وساعات صحيحة بين 0 و23.");
+    try {
+      await updateConservativeAutopilot.mutateAsync({ dailyIdeaLimit: limit, internalPublishingHours: Array.from(new Set(hours)).sort((a, b) => a - b) });
+      await utils.nusgh.dashboard.invalidate();
+      toast.success("تم حفظ إعدادات الأتمتة المحافظة.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر حفظ إعدادات الأتمتة."); }
+  };
 
   return <DashboardLayout>
     <header className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
@@ -54,6 +93,7 @@ export default function Home() {
     </header>
     {dashboard.isLoading ? <div className="grid min-h-[45vh] place-items-center"><Loader2 className="animate-spin text-[#e9b850]" /></div> : dashboard.isError ? <section className="rounded-3xl border border-red-400/20 bg-red-400/5 p-7 text-sm text-red-100"><CircleAlert className="mb-3"/>تعذر قراءة بيانات لوحة التحكم. سجّل الدخول بصلاحية المالك ثم حاول مجددًا.</section> : <>
       <section className="organic-line nusgh-grid relative mb-6 overflow-hidden rounded-[2rem] border border-white/8 bg-[#191814] p-6 sm:p-8"><img src="/manus-storage/nusgh-master-visual-identity_0ff90c86.jpg" alt="الهوية البصرية لنُسغ" className="gentle-drift pointer-events-none absolute -left-8 -top-16 h-60 w-auto opacity-60 mix-blend-screen sm:h-72"/><div className="relative max-w-2xl"><Badge className="border border-[#e9b850]/25 bg-[#e9b850]/10 text-[#eec56b] hover:bg-[#e9b850]/10">وضع التشغيل: مراجعة كاملة</Badge><h2 className="mt-5 text-2xl font-semibold text-[#f1eadc]">خط إنتاج واحد، قرار واضح، ومراجعة لا تُتخطّى.</h2><p className="mt-3 text-sm leading-7 text-[#aaa296]">لا نشر تلقائي، لا موسيقى، ولا أصل بصري بلا سجل ترخيص. كل توقف يظل ظاهرًا في الطابور حتى يُعالج.</p><div className="mt-6 flex flex-wrap gap-5 text-xs text-[#b9b0a2]"><span className="flex items-center gap-2"><span className="status-dot bg-emerald-400"/>القاعدة متصلة</span><span className="flex items-center gap-2"><span className="status-dot bg-[#e9b850]"/>المزودون حسب التهيئة</span><span className="flex items-center gap-2"><span className="status-dot bg-sky-400"/>Telegram: webhook مؤمن ومتحقق</span></div></div></section>
+      <section className="mb-7 rounded-[1.65rem] border border-[#e9b850]/20 bg-[#e9b850]/[.045] p-5 sm:p-6"><div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between"><div><div className="flex flex-wrap items-center gap-3"><p className="text-sm font-semibold text-[#f4ecdf]">الأتمتة المحافظة</p><Badge className={automation?.killSwitch ? "border border-red-400/25 bg-red-400/10 text-red-200" : "border border-emerald-400/25 bg-emerald-400/10 text-emerald-200"}>{automation?.killSwitch ? "متوقفة بـ Kill Switch" : automation?.enabled ? "مفعلة للمراجعة" : "متوقفة"}</Badge></div><p className="mt-2 max-w-2xl text-xs leading-6 text-[#a9a092]">تبحث يوميًا عن إشارات مواضيع، ترتبها وتضيف أعلى الأفكار إلى مراجعة الفكرة مع موعد داخلي مقترح. لا تُنشئ صوتًا أو رندرًا أو نشرًا خارجيًا.</p></div><div className="flex flex-wrap gap-3"><Button onClick={runDailyIntelligence} disabled={Boolean(automation?.killSwitch) || runConservativeAutopilot.isPending} className="bg-[#e9b850] text-[#17130c] hover:bg-[#f2c76b]"><Play className="ml-2" size={15}/>{runConservativeAutopilot.isPending ? "جارٍ البحث..." : "تشغيل البحث المحافظ"}</Button><Button variant="outline" onClick={toggleKillSwitch} disabled={setConservativeKillSwitch.isPending} className={automation?.killSwitch ? "border-emerald-400/30 text-emerald-200" : "border-red-400/30 text-red-200"}>{automation?.killSwitch ? <Play className="ml-2" size={15}/> : <ShieldOff className="ml-2" size={15}/>}{automation?.killSwitch ? "استئناف الأتمتة" : "إيقاف كل الأتمتة"}</Button></div></div><div className="mt-5 grid gap-3 border-t border-white/10 pt-5 sm:grid-cols-[150px_1fr_auto]"><div><Label className="text-xs text-[#c8bdad]">أفكار يومية (1–3)</Label><Input value={dailyIdeaLimit} onChange={event => setDailyIdeaLimit(event.target.value)} inputMode="numeric" className="mt-2 border-white/10 bg-black/20" /></div><div><Label className="text-xs text-[#c8bdad]">مواعيد داخلية مقترحة — Africa/Cairo</Label><Input value={internalHours} onChange={event => setInternalHours(event.target.value)} className="mt-2 border-white/10 bg-black/20" placeholder="11,16,21" /></div><Button variant="outline" onClick={saveAutomationSettings} disabled={updateConservativeAutopilot.isPending} className="self-end border-[#e9b850]/35 text-[#eec56b]">{updateConservativeAutopilot.isPending ? <Loader2 className="animate-spin"/> : "حفظ الإعدادات"}</Button></div></section>
       <section className="mb-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={Clapperboard} label="مشاريع الفيديو" value={String((snapshot?.latestVideos ?? []).length)} note="أحدث المشاريع"/><Metric icon={Timer} label="وظائف الطابور" value={String(totalJobs)} note={activeJobs ? `${activeJobs} نشطة الآن` : "لا توجد وظيفة نشطة"}/><Metric icon={Cpu} label="مزودون مهيأون" value={String(providers.filter(p => p.isEnabled).length)} note={providers.length ? "من سجل المزودين" : "لم يُضف مزود بعد"}/><Metric icon={FileCheck2} label="أفكار موثقة" value={String(snapshot?.ideaCount ?? 0)} note="بانتظار التقييم أو الإنتاج"/></section>
       <section className="grid gap-6 xl:grid-cols-[1.55fr_.9fr]"><div className="rounded-[1.65rem] border border-white/8 bg-[#181714] p-5 sm:p-6"><div className="mb-5 flex items-center justify-between"><div><p className="text-sm font-semibold text-[#efe8dc]">حالة خط الإنتاج</p><p className="mt-1 text-xs text-[#817a70]">وظائف حقيقية محفوظة في قاعدة البيانات</p></div><Waves size={19} className="text-[#e9b850]"/></div>{jobs.length ? <div className="space-y-2">{jobs.map(job => <div key={job.id} className="flex items-center gap-4 rounded-2xl bg-white/[.025] px-4 py-3"><span className={`status-dot ${statusTone[job.status] ?? "bg-zinc-500"}`}/><div className="min-w-0 flex-1"><p className="truncate text-sm text-[#dfd8ca]">{job.jobType}</p><p className="mt-1 font-mono text-[10px] text-[#756e64]">JOB-{String(job.id).padStart(4,"0")} · {job.attemptCount}/{job.maxAttempts}</p></div><Badge variant="outline" className="border-white/10 text-[10px] text-[#b4ac9e]">{statusLabel[job.status] ?? job.status}</Badge></div>)}</div> : <EmptyState title="لا توجد وظائف بعد" description="أنشئ فيديو جديدًا لإضافة أول مهمة فعلية إلى الطابور." />}</div>
       <div className="rounded-[1.65rem] border border-white/8 bg-[#181714] p-5 sm:p-6"><div className="mb-5"><p className="text-sm font-semibold text-[#efe8dc]">صحة المزودين</p><p className="mt-1 text-xs text-[#817a70]">الحالة مصدرها سجل المزودين، لا محاكاة.</p></div>{providers.length ? <div className="space-y-4">{providers.map(provider => <div key={provider.id}><div className="mb-2 flex justify-between text-xs"><span className="text-[#d9d1c2]">{provider.displayName}</span><span className="font-mono text-[10px] text-[#8d867a]">{provider.status}</span></div><Progress value={provider.status === "available" ? 100 : provider.status === "limited" ? 55 : 12} className="h-1.5 bg-white/5 [&>div]:bg-[#e9b850]" /></div>)}</div> : <EmptyState title="لا يوجد مزود مهيأ" description="ستظهر حالة كل اتصال وحدوده هنا عند ربطه فعليًا." />}</div></section>

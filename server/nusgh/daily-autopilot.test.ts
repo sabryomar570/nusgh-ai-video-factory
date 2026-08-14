@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Request, Response } from "express";
-import { canRunScheduledAutopilot, dailyAutopilotHandler } from "./daily-autopilot";
+import { canRunScheduledAutopilot, conservativeAutopilotSkipReason, dailyAutopilotHandler } from "./daily-autopilot";
 import { sdk } from "../_core/sdk";
 
 function createResponseRecorder() {
@@ -24,6 +24,12 @@ describe("Daily Autopilot authorization", () => {
     expect(canRunScheduledAutopilot({ isCron: true })).toBe(false);
     expect(canRunScheduledAutopilot({ taskUid: "task_123" })).toBe(false);
     expect(canRunScheduledAutopilot({})).toBe(false);
+  });
+
+  it("stops all new conservative work when Kill Switch is active", () => {
+    expect(conservativeAutopilotSkipReason({ enabled: true, killSwitch: true })).toBe("kill_switch");
+    expect(conservativeAutopilotSkipReason({ enabled: false, killSwitch: false })).toBe("disabled");
+    expect(conservativeAutopilotSkipReason({ enabled: true, killSwitch: false })).toBeNull();
   });
 
   it("returns 403 when schedule authentication rejects the request", async () => {
