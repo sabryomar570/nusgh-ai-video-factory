@@ -1,6 +1,6 @@
 import { claimJob, completeJob, failOrRetryJob, stopJobForReview } from "./queue";
 import { providerRegistry } from "./providers";
-import { requestInitialVideoReview } from "./repository";
+import { findDueJobs, requestInitialVideoReview } from "./repository";
 
 export function pipelineInitializeReviewReason(jobType: string, videoId?: number | null) {
   if (jobType !== "pipeline.initialize") return "هذه الدالة مخصصة لمهمة pipeline.initialize فقط.";
@@ -45,4 +45,14 @@ export async function executeProviderJob(jobId: number) {
   }
   await completeJob(job.id, result.output);
   return { state: "completed" as const, result };
+}
+
+export async function runDueJobsManually(projectId: number, limit = 5) {
+  const dueJobs = (await findDueJobs(projectId)).slice(0, Math.max(1, Math.min(limit, 10)));
+  const outcomes: Array<{ jobId: number; state: string }> = [];
+  for (const job of dueJobs) {
+    const outcome = job.jobType === "pipeline.initialize" ? await executePipelineInitializeJob(job.id) : await executeProviderJob(job.id);
+    outcomes.push({ jobId: job.id, state: outcome.state });
+  }
+  return { scanned: dueJobs.length, outcomes, executionMode: "manual_on_demand" as const };
 }

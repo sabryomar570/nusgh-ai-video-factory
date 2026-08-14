@@ -14,6 +14,7 @@ import {
   listProjectVideos,
 } from "./repository";
 import { syncChannelAnalytics } from "./youtube-analytics";
+import { runDueJobsManually } from "./worker";
 
 async function projectForCaller(userId: number) {
   return ensureNusghProject(userId);
@@ -51,6 +52,12 @@ export const nusghRouter = router({
       } catch (error) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "تعذر جلب تحليلات YouTube." });
       }
+    }),
+  runQueue: adminProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(10).default(5) }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await projectForCaller(ctx.user.id);
+      return runDueJobsManually(project.id, input.limit);
     }),
   createIdea: adminProcedure
     .input(
