@@ -5,6 +5,7 @@ import { NUSGH_BRAND } from "../../shared/nusgh";
 import { enqueueJob } from "./queue";
 import {
   createAuditEntry,
+  buildVideoAuditRenderManifest,
   createIdea,
   createVideoFromIdea,
   ensureNusghProject,
@@ -68,6 +69,16 @@ export const nusghRouter = router({
         return await prepareNarrationJob({ projectId: project.id, videoId: input.videoId, requestedBy: "web_control_center" });
       } catch (error) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "تعذر وضع الصوت في الطابور." });
+      }
+    }),
+  previewRenderManifest: adminProcedure
+    .input(z.object({ videoId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const project = await projectForCaller(ctx.user.id);
+      try {
+        return await buildVideoAuditRenderManifest(project.id, input.videoId);
+      } catch (error) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "تعذر بناء مواصفة الرندر." });
       }
     }),
   createIdea: adminProcedure

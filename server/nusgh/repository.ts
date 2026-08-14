@@ -10,6 +10,7 @@ import {
   projects,
   providers,
   schedules,
+  scenes,
   scripts,
   videos,
   type Project,
@@ -17,6 +18,7 @@ import {
 import { getDb } from "../db";
 import { reviewAsset, type AssetReviewInput } from "./asset-policy";
 import { enqueueJob } from "./queue";
+import { buildNusghRenderManifestFromRecordedArtifacts } from "./render-manifest";
 
 export const DEFAULT_PROJECT_SLUG = "nusgh-primary";
 
@@ -124,6 +126,26 @@ export async function getVideoWorkflowStatus(projectId: number, videoId: number)
     db.select().from(approvals).where(and(eq(approvals.projectId, projectId), eq(approvals.videoId, videoId), eq(approvals.status, "pending"))).orderBy(asc(approvals.createdAt)).limit(5),
   ]);
   return { video, latestJobs, tracks, pendingApprovals };
+}
+
+export async function buildVideoAuditRenderManifest(projectId: number, videoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const video = (await db.select().from(videos).where(and(eq(videos.projectId, projectId), eq(videos.id, videoId))).limit(1))[0];
+  if (!video) throw new Error("الفيديو المطلوب غير موجود داخل مشروع نُسغ.");
+  const [videoScenes, tracks, videoAssets] = await Promise.all([
+    db.select().from(scenes).where(eq(scenes.videoId, videoId)).orderBy(asc(scenes.sequence)),
+    db.select().from(audioTracks).where(eq(audioTracks.videoId, videoId)).orderBy(desc(audioTracks.createdAt)),
+    db.select().from(assets).where(and(eq(assets.projectId, projectId), eq(assets.videoId, videoId))),
+  ]);
+  return buildNusghRenderManifestFromRecordedArtifacts({
+    videoId,
+    targetFormat: video.videoType,
+    scenes: videoScenes.map(scene => ({ sequence: scene.sequence, startTimeMs: scene.startTimeMs, endTimeMs: scene.endTimeMs, narration: scene.narration, visualType: scene.visualType, visualAssetId: scene.visualAssetId, caption: scene.caption })),
+    audioTracks: tracks.map(track => ({ audioType: track.audioType, publicUrl: track.publicUrl, reviewStatus: track.reviewStatus, isMusicLike: track.isMusicLike, metadata: track.metadata })),
+    visualAssets: videoAssets.map(asset => ({ id: asset.id, publicUrl: asset.publicUrl, commercialUsageStatus: asset.commercialUsageStatus, provenanceStatus: asset.provenanceStatus })),
+    safetyFlags: video.safetyFlags ?? [],
+  });
 }
 
 export async function listProjectJobs(projectId: number) {

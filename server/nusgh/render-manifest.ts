@@ -1,6 +1,9 @@
 import { assessRenderReadiness, type RenderReadinessInput } from "./production-qc";
 
 export type RenderScene = { sequence: number; startTimeMs: number; endTimeMs: number; narration?: string | null; visualType: string; assetUrl?: string | null; caption?: string | null };
+export type RecordedRenderScene = Omit<RenderScene, "assetUrl"> & { visualAssetId?: number | null };
+export type RecordedNarrationTrack = { audioType: string; publicUrl?: string | null; reviewStatus: string; isMusicLike: boolean; metadata?: Record<string, unknown> | null };
+export type RecordedVisualAsset = { id: number; publicUrl?: string | null; commercialUsageStatus: string; provenanceStatus: string };
 export type RenderManifestInput = {
   videoId: number;
   targetFormat: "short" | "long_form";
@@ -13,6 +16,56 @@ export type RenderManifestInput = {
   allAssetsApproved: boolean;
   safetyFlags: string[];
 };
+
+function stringMetadataValue(metadata: Record<string, unknown> | null | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function captionVttUrl(metadata: Record<string, unknown> | null | undefined) {
+  const captionFiles = metadata?.captionFiles;
+  if (!captionFiles || typeof captionFiles !== "object") return null;
+  const value = (captionFiles as Record<string, unknown>).vtt;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function recordedSegmentCount(metadata: Record<string, unknown> | null | undefined) {
+  const value = metadata?.segmentCount;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+export function buildNusghRenderManifestFromRecordedArtifacts(input: {
+  videoId: number;
+  targetFormat: "short" | "long_form";
+  scenes: RecordedRenderScene[];
+  audioTracks: RecordedNarrationTrack[];
+  visualAssets: RecordedVisualAsset[];
+  safetyFlags: string[];
+}) {
+  const narration = input.audioTracks.find(track => track.audioType === "narration" && track.reviewStatus === "approved");
+  const assetsById = new Map(input.visualAssets.map(asset => [asset.id, asset]));
+  const allAssetsApproved = input.scenes.every(scene => {
+    if (!scene.visualAssetId) return true;
+    const asset = assetsById.get(scene.visualAssetId);
+    return Boolean(asset?.publicUrl && asset.commercialUsageStatus === "approved" && asset.provenanceStatus === "approved");
+  });
+  const scenes: RenderScene[] = input.scenes.map(scene => {
+    const asset = scene.visualAssetId ? assetsById.get(scene.visualAssetId) : undefined;
+    return { ...scene, assetUrl: asset?.publicUrl ?? null };
+  });
+  return buildNusghRenderManifest({
+    videoId: input.videoId,
+    targetFormat: input.targetFormat,
+    scenes,
+    narrationUrl: narration?.publicUrl ?? null,
+    narrationManifestUrl: stringMetadataValue(narration?.metadata, "narrationManifest"),
+    narrationSegmentCount: recordedSegmentCount(narration?.metadata),
+    captionsUrl: captionVttUrl(narration?.metadata),
+    hasMusicLikeAudio: input.audioTracks.some(track => track.isMusicLike),
+    allAssetsApproved,
+    safetyFlags: input.safetyFlags,
+  });
+}
 
 export function buildNusghRenderManifest(input: RenderManifestInput) {
   const readiness: RenderReadinessInput = {
