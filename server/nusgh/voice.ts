@@ -9,6 +9,20 @@ export type CaptionCue = { startTimeMs: number; endTimeMs: number; text: string;
 type ElevenLabsAlignment = { characters?: string[]; character_start_times_seconds?: number[]; character_end_times_seconds?: number[] };
 type ElevenLabsTimedResponse = { audio_base64?: string; alignment?: ElevenLabsAlignment; normalized_alignment?: ElevenLabsAlignment };
 const MAX_ELEVENLABS_SEGMENT_CHARS = 2_500;
+const MAX_ELEVENLABS_SEGMENTS_PER_JOB = 12;
+
+type TimedSynthesis = {
+  ok: true;
+  audio: Buffer;
+  captionCues: CaptionCue[];
+  durationMs: number;
+};
+
+type TimedSynthesisFailure = {
+  ok: false;
+  requiresHumanReview?: boolean;
+  error: string;
+};
 
 function cleanCaption(text: string) {
   return text.replace(/\s+/g, " ").trim();
@@ -105,6 +119,52 @@ function providerFailure(status: number, details: string): ProviderExecutionResu
   return { ok: false, requiresHumanReview: true, error: `تعذر توليد الصوت من ElevenLabs (${status}): ${details.slice(0, 240)}` };
 }
 
+function shiftCaptionCues(cues: CaptionCue[], offsetMs: number) {
+  return cues.map(cue => ({ ...cue, startTimeMs: cue.startTimeMs + offsetMs, endTimeMs: cue.endTimeMs + offsetMs }));
+}
+
+async function synthesizeTimedSegment(input: {
+  text: string;
+  voiceId: string;
+  modelId: string;
+  stability: number;
+  similarityBoost: number;
+  style: number;
+}): Promise<TimedSynthesis | TimedSynthesisFailure> {
+  let response: Response;
+  try {
+    response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(input.voiceId)}/with-timestamps?output_format=mp3_44100_128`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "xi-api-key": ENV.elevenLabsApiKey! },
+      body: JSON.stringify({
+        text: input.text,
+        model_id: input.modelId,
+        voice_settings: { stability: input.stability, similarity_boost: input.similarityBoost, style: input.style, use_speaker_boost: true },
+      }),
+    });
+  } catch {
+    return { ok: false, error: "تعذر الاتصال بـ ElevenLabs. سيُعاد تشغيل المهمة وفق سياسة الطابور." };
+  }
+
+  if (!response.ok) {
+    const failure = providerFailure(response.status, await response.text().catch(() => ""));
+    return { ok: false, requiresHumanReview: failure.requiresHumanReview, error: failure.error ?? "تعذر توليد الصوت." };
+  }
+
+  try {
+    const payload = await response.json() as ElevenLabsTimedResponse;
+    const audio = Buffer.from(payload.audio_base64 ?? "", "base64");
+    if (!audio.length) return { ok: false, error: "أعاد ElevenLabs ملفًا صوتيًا فارغًا؛ ستعاد محاولة المهمة." };
+    const alignment = payload.normalized_alignment ?? payload.alignment;
+    const captionCues = createArabicCaptionCuesFromTiming(alignment);
+    const durationMs = Math.max(0, ...((alignment?.character_end_times_seconds ?? []).map(value => Math.round(value * 1000))));
+    if (!durationMs || !captionCues.length) return { ok: false, requiresHumanReview: true, error: "تم توليد الصوت دون توقيت صالح للترجمات العربية؛ توقفت المهمة للمراجعة بدل إنشاء ملف غير مكتمل." };
+    return { ok: true, audio, captionCues, durationMs };
+  } catch {
+    return { ok: false, error: "تعذر قراءة استجابة ElevenLabs الصوتية. سيُعاد تشغيل المهمة وفق سياسة الطابور." };
+  }
+}
+
 export class ElevenLabsArabicTtsAdapter implements ProviderAdapter {
   readonly key = "elevenlabs-tts-ar";
   readonly type = "tts" as const;
@@ -123,41 +183,41 @@ export class ElevenLabsArabicTtsAdapter implements ProviderAdapter {
     if (!text) return { ok: false, requiresHumanReview: true, error: "لا يوجد نص صالح لتوليد التعليق الصوتي." };
     if (!voiceId) return { ok: false, requiresHumanReview: true, error: "لم يُحدد voiceId ثابت لراوي نُسغ. توقفت المهمة للمراجعة." };
     const chunks = splitArabicNarration(text);
-    if (chunks.length > 1) return { ok: false, requiresHumanReview: true, error: `يتطلب النص ${chunks.length} مقاطع صوتية. سيقسمه خط الإنتاج قبل التوليد بدل قصه أو دمجه بصورة غير دقيقة.` };
+    if (chunks.length > MAX_ELEVENLABS_SEGMENTS_PER_JOB) return { ok: false, requiresHumanReview: true, error: `يتطلب النص ${chunks.length} مقاطع صوتية، وهو يتجاوز حد الأمان ${MAX_ELEVENLABS_SEGMENTS_PER_JOB} لكل مهمة. قسّم النص أو راجعه قبل التوليد.` };
 
-    let response: Response;
-    try {
-      response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=mp3_44100_128`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "xi-api-key": ENV.elevenLabsApiKey },
-        body: JSON.stringify({
-          text,
-          model_id: textInput(input.modelId) || "eleven_multilingual_v2",
-          language_code: "ar",
-          voice_settings: { stability: numericInput(input.stability, 0.5), similarity_boost: numericInput(input.similarityBoost, 0.75), style: numericInput(input.style, 0.1), use_speaker_boost: true },
-        }),
-      });
-    } catch {
-      return { ok: false, error: "تعذر الاتصال بـ ElevenLabs. سيُعاد تشغيل المهمة وفق سياسة الطابور." };
-    }
-    if (!response.ok) return providerFailure(response.status, await response.text().catch(() => ""));
+    const modelId = textInput(input.modelId) || "eleven_multilingual_v2";
+    const stability = numericInput(input.stability, 0.5);
+    const similarityBoost = numericInput(input.similarityBoost, 0.75);
+    const style = numericInput(input.style, 0.1);
+    const basePath = `projects/${context.projectId}/videos/${context.videoId ?? "unassigned"}`;
+    const segments: Array<{ index: number; storageKey: string; publicUrl: string; durationMs: number; textLength: number }> = [];
+    const captionCues: CaptionCue[] = [];
+    let offsetMs = 0;
 
     try {
-      const payload = await response.json() as ElevenLabsTimedResponse;
-      const audio = Buffer.from(payload.audio_base64 ?? "", "base64");
-      if (!audio.length) return { ok: false, error: "أعاد ElevenLabs ملفًا صوتيًا فارغًا؛ ستعاد محاولة المهمة." };
-      const alignment = payload.normalized_alignment ?? payload.alignment;
-      const captionCues = createArabicCaptionCuesFromTiming(alignment);
-      const durationMs = Math.max(0, ...((alignment?.character_end_times_seconds ?? []).map(value => Math.round(value * 1000))));
-      const saved = await storagePut(`projects/${context.projectId}/videos/${context.videoId ?? "unassigned"}/audio/narration.mp3`, audio, "audio/mpeg");
+      for (const [index, chunk] of Array.from(chunks.entries())) {
+        const generated = await synthesizeTimedSegment({ text: chunk, voiceId, modelId, stability, similarityBoost, style });
+        if (!generated.ok) return generated;
+        const saved = await storagePut(`${basePath}/audio/narration-${String(index + 1).padStart(2, "0")}.mp3`, generated.audio, "audio/mpeg");
+        segments.push({ index: index + 1, storageKey: saved.key, publicUrl: saved.url, durationMs: generated.durationMs, textLength: chunk.length });
+        captionCues.push(...shiftCaptionCues(generated.captionCues, offsetMs));
+        offsetMs += generated.durationMs;
+      }
+
+      if (!segments.length || !captionCues.length || !offsetMs) return { ok: false, requiresHumanReview: true, error: "لم ينتج التوليد مقاطع صوتية أو ترجمات صالحة؛ توقفت المهمة للمراجعة." };
       const subtitles = { srt: renderArabicSrt(captionCues), vtt: renderArabicWebVtt(captionCues) };
-      const srtFile = await storagePut(`projects/${context.projectId}/videos/${context.videoId ?? "unassigned"}/captions/ar.srt`, Buffer.from(subtitles.srt, "utf8"), "application/x-subrip");
-      const vttFile = await storagePut(`projects/${context.projectId}/videos/${context.videoId ?? "unassigned"}/captions/ar.vtt`, Buffer.from(subtitles.vtt, "utf8"), "text/vtt; charset=utf-8");
+      const srtFile = await storagePut(`${basePath}/captions/ar.srt`, Buffer.from(subtitles.srt, "utf8"), "application/x-subrip");
+      const vttFile = await storagePut(`${basePath}/captions/ar.vtt`, Buffer.from(subtitles.vtt, "utf8"), "text/vtt; charset=utf-8");
+      const manifest = { version: 1, type: "nusgh_narration_manifest", audioFormat: "mp3", language: "ar", direction: "rtl", segments, durationMs: offsetMs, captionFiles: { srt: srtFile.url, vtt: vttFile.url } };
+      const manifestFile = segments.length > 1 ? await storagePut(`${basePath}/audio/narration.manifest.json`, Buffer.from(JSON.stringify(manifest), "utf8"), "application/json") : null;
+      const primaryAsset = manifestFile ?? { key: segments[0].storageKey, url: segments[0].publicUrl };
+      const contentType = manifestFile ? "application/vnd.nusgh.narration-manifest+json" : "audio/mpeg";
+
       if (context.videoId) {
         const db = await getDb();
-        if (db) await db.insert(audioTracks).values({ videoId: context.videoId, audioType: "narration", provider: this.key, voiceId, storageKey: saved.key, publicUrl: saved.url, durationMs: durationMs || null, isMusicLike: false, reviewStatus: "pending", metadata: { modelId: textInput(input.modelId) || "eleven_multilingual_v2", language: "ar", captionCues, captionFiles: { srt: srtFile.url, vtt: vttFile.url }, requiresCommercialLicenseReview: true } });
+        if (db) await db.insert(audioTracks).values({ videoId: context.videoId, audioType: "narration", provider: this.key, voiceId, storageKey: primaryAsset.key, publicUrl: primaryAsset.url, durationMs: offsetMs, isMusicLike: false, reviewStatus: "pending", metadata: { modelId, language: "ar", segmentCount: segments.length, segments, captionCues, captionFiles: { srt: srtFile.url, vtt: vttFile.url }, narrationManifest: manifestFile?.url ?? null, requiresCommercialLicenseReview: true } });
       }
-      return { ok: true, requiresHumanReview: true, output: { storageKey: saved.key, publicUrl: saved.url, contentType: "audio/mpeg", provider: this.key, voiceId, durationMs, captionCues, captionFiles: { srt: srtFile.url, vtt: vttFile.url }, requiresCommercialLicenseReview: true } };
+      return { ok: true, requiresHumanReview: true, output: { storageKey: primaryAsset.key, publicUrl: primaryAsset.url, contentType, provider: this.key, voiceId, durationMs: offsetMs, captionCues, captionFiles: { srt: srtFile.url, vtt: vttFile.url }, segmentCount: segments.length, narrationManifest: manifestFile?.url ?? null, requiresCommercialLicenseReview: true } };
     } catch {
       return { ok: false, error: "تم توليد الصوت لكن تعذر حفظه أو تسجيله. سيُعاد تشغيل المهمة دون إيقاف النظام." };
     }

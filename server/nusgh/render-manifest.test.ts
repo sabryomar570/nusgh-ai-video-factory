@@ -13,4 +13,10 @@ describe("NUSGH render manifest", () => {
     expect(result).toMatchObject({ ready: false });
     expect(result.blockers.join(" ")).toContain("الموسيقى");
   });
+  it("carries a segmented narration manifest and RTL captions into the render contract", () => {
+    const result = buildNusghRenderManifest({ ...base, narrationUrl: null, narrationManifestUrl: "https://audio.example/narration.manifest.json", narrationSegmentCount: 3 });
+    expect(result.ready).toBe(true);
+    expect(result.manifest?.audio).toMatchObject({ sourceKind: "segmented_manifest", narrationManifestUrl: "https://audio.example/narration.manifest.json", segmentCount: 3, music: "off" });
+    expect(result.manifest?.captions).toMatchObject({ direction: "rtl", format: "webvtt", url: "https://audio.example/ar.vtt" });
+  });
 });

@@ -11,7 +11,12 @@ export function canRunScheduledAutopilot(user: { isCron?: boolean; taskUid?: str
 
 export async function dailyAutopilotHandler(req: Request, res: Response) {
   try {
-    const user = await sdk.authenticateRequest(req);
+    let user: { isCron?: boolean; taskUid?: string };
+    try {
+      user = await sdk.authenticateRequest(req);
+    } catch {
+      return res.status(403).json({ error: "cron_only" });
+    }
     if (!canRunScheduledAutopilot(user)) return res.status(403).json({ error: "cron_only" });
     const db = await getDb();
     if (!db) throw new Error("قاعدة البيانات غير متاحة.");

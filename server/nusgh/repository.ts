@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, lte } from "drizzle-orm";
 import {
   assetLicenses,
   assets,
+  audioTracks,
   approvals,
   auditLogs,
   ideas,
@@ -9,11 +10,13 @@ import {
   projects,
   providers,
   schedules,
+  scripts,
   videos,
   type Project,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { reviewAsset, type AssetReviewInput } from "./asset-policy";
+import { enqueueJob } from "./queue";
 
 export const DEFAULT_PROJECT_SLUG = "nusgh-primary";
 
@@ -98,6 +101,31 @@ export async function listVideosReadyForReview(projectId: number) {
   return db.select().from(videos).where(and(eq(videos.projectId, projectId), eq(videos.status, "awaiting_review"))).orderBy(desc(videos.updatedAt)).limit(10);
 }
 
+export async function listPendingVideoApprovals(projectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  return db
+    .select({ approvalId: approvals.id, approvalType: approvals.approvalType, requestedBy: approvals.requestedBy, createdAt: approvals.createdAt, videoId: videos.id, title: videos.title, videoStatus: videos.status, qualityScore: videos.qualityScore, safetyFlags: videos.safetyFlags })
+    .from(approvals)
+    .innerJoin(videos, and(eq(approvals.videoId, videos.id), eq(approvals.projectId, videos.projectId)))
+    .where(and(eq(approvals.projectId, projectId), eq(approvals.status, "pending")))
+    .orderBy(asc(approvals.createdAt))
+    .limit(20);
+}
+
+export async function getVideoWorkflowStatus(projectId: number, videoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const video = (await db.select().from(videos).where(and(eq(videos.projectId, projectId), eq(videos.id, videoId))).limit(1))[0];
+  if (!video) throw new Error("الفيديو المطلوب غير موجود داخل مشروع نُسغ.");
+  const [latestJobs, tracks, pendingApprovals] = await Promise.all([
+    db.select().from(jobs).where(and(eq(jobs.projectId, projectId), eq(jobs.videoId, videoId))).orderBy(desc(jobs.updatedAt)).limit(5),
+    db.select().from(audioTracks).where(eq(audioTracks.videoId, videoId)).orderBy(desc(audioTracks.createdAt)).limit(3),
+    db.select().from(approvals).where(and(eq(approvals.projectId, projectId), eq(approvals.videoId, videoId), eq(approvals.status, "pending"))).orderBy(asc(approvals.createdAt)).limit(5),
+  ]);
+  return { video, latestJobs, tracks, pendingApprovals };
+}
+
 export async function listProjectJobs(projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
@@ -133,6 +161,42 @@ export async function getElevenLabsVoiceId(projectId: number) {
   return typeof voiceId === "string" ? voiceId : null;
 }
 
+export function composeArabicNarration(script: { hook?: string | null; body: string; takeaway?: string | null }) {
+  return [script.hook, script.body, script.takeaway].filter((part): part is string => Boolean(part?.trim())).map(part => part.trim()).join("\n\n");
+}
+
+export async function prepareNarrationJob(input: { projectId: number; videoId: number; requestedBy: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const video = (await db.select().from(videos).where(and(eq(videos.id, input.videoId), eq(videos.projectId, input.projectId))).limit(1))[0];
+  if (!video) throw new Error("الفيديو المطلوب غير موجود داخل مشروع نُسغ.");
+  if (video.requiresHumanReview && video.status !== "producing") throw new Error("يتطلب الفيديو استكمال واعتماد المراحل التحريرية قبل توليد الصوت.");
+
+  const script = (await db.select().from(scripts).where(and(eq(scripts.videoId, input.videoId), eq(scripts.status, "approved"))).orderBy(desc(scripts.version)).limit(1))[0];
+  if (!script) throw new Error("لا يوجد سكريبت معتمد لهذا الفيديو؛ لا يمكن توليد صوت غير معتمد.");
+  const narration = composeArabicNarration(script);
+  if (!narration) throw new Error("السكريبت المعتمد لا يحتوي نصًا صالحًا للتعليق الصوتي.");
+  const voiceId = await getElevenLabsVoiceId(input.projectId);
+  if (!voiceId) throw new Error("لم يُحدد Voice ID ثابت. استخدم /voice <id> قبل جدولة الصوت.");
+
+  const existing = (await db.select().from(jobs).where(and(eq(jobs.projectId, input.projectId), eq(jobs.videoId, input.videoId), eq(jobs.jobType, "tts.generate"), inArray(jobs.status, ["queued", "running", "retrying", "requires_review", "completed"]))).orderBy(desc(jobs.id)).limit(1))[0];
+  if (existing) return { job: existing, duplicate: true, narrationLength: narration.length };
+
+  await db.update(videos).set({ status: "producing", requiresHumanReview: true, failureReason: null }).where(eq(videos.id, input.videoId));
+  const job = await enqueueJob({
+    projectId: input.projectId,
+    videoId: input.videoId,
+    jobType: "tts.generate",
+    providerAdapterKey: "elevenlabs-tts-ar",
+    priority: 50,
+    maxAttempts: 3,
+    timeoutSeconds: 180,
+    payload: { text: narration, voiceId, modelId: "eleven_multilingual_v2", language: "ar", scriptId: script.id, requestedBy: input.requestedBy },
+  });
+  await createAuditEntry({ projectId: input.projectId, actorType: "system", action: "created", entityType: "job", entityId: String(job.id), summary: "أضيف توليد التعليق الصوتي من سكريبت معتمد إلى الطابور.", context: { videoId: input.videoId, scriptId: script.id, narrationLength: narration.length } });
+  return { job, duplicate: false, narrationLength: narration.length };
+}
+
 export async function getProjectById(projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
@@ -158,18 +222,12 @@ export async function decideVideoApproval(input: {
   const video = await db.select().from(videos).where(and(eq(videos.id, input.videoId), eq(videos.projectId, input.projectId))).limit(1);
   if (!video[0]) throw new Error("الفيديو المطلوب غير موجود داخل مشروع نُسغ.");
   const approvalType = input.approvalType ?? "final_video";
+  const pendingApprovals = await db.select().from(approvals).where(and(eq(approvals.projectId, input.projectId), eq(approvals.videoId, input.videoId), eq(approvals.approvalType, approvalType), eq(approvals.status, "pending"))).limit(5);
+  if (!pendingApprovals.length) throw new Error("لا يوجد طلب اعتماد معلّق لهذه المرحلة؛ لن يُنفذ قرار مكرر أو قديم.");
   const nextStatus = input.decision === "approved" ? (approvalType === "idea" ? "researching" : "approved") : input.decision === "rejected" ? "cancelled" : "draft";
   await db.update(videos).set({ status: nextStatus, requiresHumanReview: input.decision !== "approved" }).where(eq(videos.id, input.videoId));
-  await db.insert(approvals).values({
-    projectId: input.projectId,
-    videoId: input.videoId,
-    approvalType,
-    status: input.decision,
-    requestedBy: "telegram_control_center",
-    decidedByUserId: input.actorUserId,
-    decidedAt: new Date(),
-  });
-  return video[0];
+  await db.update(approvals).set({ status: input.decision, decidedByUserId: input.actorUserId, decidedAt: new Date() }).where(and(eq(approvals.projectId, input.projectId), eq(approvals.videoId, input.videoId), eq(approvals.approvalType, approvalType), eq(approvals.status, "pending")));
+  return { ...video[0], status: nextStatus, requiresHumanReview: input.decision !== "approved" };
 }
 
 export async function requestInitialVideoReview(input: { projectId: number; videoId: number; requestedBy: string }) {

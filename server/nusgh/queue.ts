@@ -70,12 +70,12 @@ export async function completeJob(jobId: number, result?: Record<string, unknown
   await logJob(jobId, "info", "اكتمل تنفيذ المهمة.");
 }
 
-export async function stopJobForReview(jobId: number, reason: string) {
+export async function stopJobForReview(jobId: number, reason: string, result?: Record<string, unknown>) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
   await db
     .update(jobs)
-    .set({ status: "requires_review", requiresHumanReview: true, failureReason: reason })
+    .set({ status: "requires_review", requiresHumanReview: true, failureReason: reason, result })
     .where(eq(jobs.id, jobId));
   await logJob(jobId, "warn", "توقفت المهمة للمراجعة البشرية.", { reason });
 }

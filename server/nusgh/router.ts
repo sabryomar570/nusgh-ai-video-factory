@@ -12,6 +12,7 @@ import {
   listProjectJobs,
   listProjectProviders,
   listProjectVideos,
+  prepareNarrationJob,
 } from "./repository";
 import { syncChannelAnalytics } from "./youtube-analytics";
 import { runDueJobsManually } from "./worker";
@@ -58,6 +59,16 @@ export const nusghRouter = router({
     .mutation(async ({ ctx, input }) => {
       const project = await projectForCaller(ctx.user.id);
       return runDueJobsManually(project.id, input.limit);
+    }),
+  queueNarration: adminProcedure
+    .input(z.object({ videoId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await projectForCaller(ctx.user.id);
+      try {
+        return await prepareNarrationJob({ projectId: project.id, videoId: input.videoId, requestedBy: "web_control_center" });
+      } catch (error) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "تعذر وضع الصوت في الطابور." });
+      }
     }),
   createIdea: adminProcedure
     .input(

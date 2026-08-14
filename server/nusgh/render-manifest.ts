@@ -6,6 +6,8 @@ export type RenderManifestInput = {
   targetFormat: "short" | "long_form";
   scenes: RenderScene[];
   narrationUrl?: string | null;
+  narrationManifestUrl?: string | null;
+  narrationSegmentCount?: number | null;
   captionsUrl?: string | null;
   hasMusicLikeAudio: boolean;
   allAssetsApproved: boolean;
@@ -15,7 +17,7 @@ export type RenderManifestInput = {
 export function buildNusghRenderManifest(input: RenderManifestInput) {
   const readiness: RenderReadinessInput = {
     sceneCount: input.scenes.length,
-    hasNarration: Boolean(input.narrationUrl),
+    hasNarration: Boolean(input.narrationUrl || input.narrationManifestUrl),
     hasMusicLikeAudio: input.hasMusicLikeAudio,
     allAssetsApproved: input.allAssetsApproved,
     safetyFlags: input.safetyFlags,
@@ -31,11 +33,17 @@ export function buildNusghRenderManifest(input: RenderManifestInput) {
     blockers: [] as string[],
     requiresHumanReview: true as const,
     manifest: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       videoId: input.videoId,
       dimensions: gate.dimensions,
       durationMs,
-      audio: { narrationUrl: input.narrationUrl, music: "off" as const },
+      audio: {
+        sourceKind: input.narrationManifestUrl ? "segmented_manifest" as const : "single_file" as const,
+        narrationUrl: input.narrationUrl ?? null,
+        narrationManifestUrl: input.narrationManifestUrl ?? null,
+        segmentCount: input.narrationManifestUrl ? Math.max(2, input.narrationSegmentCount ?? 2) : 1,
+        music: "off" as const,
+      },
       captions: { language: "ar", direction: "rtl", format: "webvtt", url: input.captionsUrl },
       scenes: orderedScenes.map(scene => ({ sequence: scene.sequence, startTimeMs: scene.startTimeMs, endTimeMs: scene.endTimeMs, narration: scene.narration ?? null, visual: { type: scene.visualType, assetUrl: scene.assetUrl ?? null }, caption: scene.caption ?? null })),
       releasePolicy: { uploadVisibility: "private", requiresHumanReview: true, safetyOverride: true },

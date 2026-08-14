@@ -36,7 +36,7 @@ export async function executeProviderJob(jobId: number) {
 
   const result = await adapter.execute({ projectId: job.projectId, videoId: job.videoId ?? undefined, jobId: job.id, input: job.payload ?? {} });
   if (result.requiresHumanReview) {
-    await stopJobForReview(job.id, result.error ?? "يتطلب ناتج المزود مراجعة بشرية.");
+    await stopJobForReview(job.id, result.error ?? "يتطلب ناتج المزود مراجعة بشرية.", result.output);
     return { state: "requires_review" as const, result };
   }
   if (!result.ok) {
