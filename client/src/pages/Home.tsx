@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { CircleAlert, Clapperboard, Cpu, FileCheck2, Loader2, Plus, Sparkles, Timer, Waves } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 const statusLabel: Record<string, string> = { queued: "بانتظار التشغيل", running: "قيد التنفيذ", completed: "مكتمل", failed: "فشل", retrying: "إعادة محاولة", requires_review: "مراجعة لازمة", draft: "مسودة", awaiting_review: "بانتظار المراجعة", approved: "معتمد", published: "منشور" };
@@ -25,6 +25,10 @@ export default function Home() {
   const [format, setFormat] = useState<"short" | "long_form">("short");
   const [title, setTitle] = useState("");
   const [concept, setConcept] = useState("");
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("create") === "video") setOpen(true);
+  }, []);
 
   const create = async () => {
     if (!title.trim() || !concept.trim()) return toast.error("أدخل عنوانًا وفكرة مركزية واضحة.");

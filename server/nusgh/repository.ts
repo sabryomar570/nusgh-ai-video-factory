@@ -13,6 +13,7 @@ import {
   scenes,
   scripts,
   videos,
+  youtubeChannels,
   type Project,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
@@ -223,6 +224,12 @@ export async function getProjectById(projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
   return (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
+}
+
+export async function getYouTubeConnectionStatus(projectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  return (await db.select().from(youtubeChannels).where(eq(youtubeChannels.projectId, projectId)).orderBy(desc(youtubeChannels.lastSyncedAt)).limit(1))[0] ?? null;
 }
 
 export async function setProjectAutomationMode(projectId: number, mode: "full_review" | "semi_auto" | "conditional_auto") {

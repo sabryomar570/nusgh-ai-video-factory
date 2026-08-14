@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findMatchingPendingReview, formatRenderManifestPreview, formatVideoWorkflowStatus, hasValidTelegramWebhookSecret, isAllowedTelegramOwner, verifyTelegramBot } from "./telegram";
+import { createVideoEntryUrl, findMatchingPendingReview, formatRenderManifestPreview, formatVideoWorkflowStatus, formatYouTubeConnectionStatus, hasValidTelegramWebhookSecret, isAllowedTelegramOwner, verifyTelegramBot } from "./telegram";
 
 describe("Telegram configuration", () => {
   const shouldVerifyExternalProvider = process.env.NUSGH_VERIFY_EXTERNAL_PROVIDERS === "true";
@@ -35,5 +35,14 @@ describe("Telegram configuration", () => {
     const closedReview = findMatchingPendingReview([{ videoId: 12, approvalType: "idea" }], 12, "final_video");
     expect(openReview).toEqual({ videoId: 12, approvalType: "idea" });
     expect(closedReview).toBeUndefined();
+  });
+  it("shows actual YouTube connection state without offering automatic publishing", () => {
+    expect(formatYouTubeConnectionStatus(null)).toContain("غير متصلة");
+    const connected = formatYouTubeConnectionStatus({ isConnected: true, channelTitle: "NUSGH", lastSyncedAt: new Date("2026-08-14T08:00:00Z") });
+    expect(connected).toContain("متصلة خادميًا");
+    expect(connected).toContain("مقيدين بالمراجعة البشرية");
+  });
+  it("routes the create-video button to the actual dashboard form instead of a command-only placeholder", () => {
+    expect(createVideoEntryUrl()).toBe("https://nusghvideo-fqf8exqq.manus.space/?create=video");
   });
 });
