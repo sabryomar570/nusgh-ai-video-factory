@@ -18,13 +18,15 @@ Use `DEPLOYMENT_ENVIRONMENT_VARIABLES.md` as the list of names to configure in y
 
 The application requires a MySQL-compatible database through `DATABASE_URL`. It also contains the existing Manus authentication and Forge runtime integrations, so an external host must supply the corresponding runtime variables listed in `.env.example` or replace those integrations before use outside Manus.
 
-## Important OAuth note
+## YouTube OAuth
 
-The current source does not yet include the `GET /api/oauth/youtube/callback` route. Do not add a YouTube redirect URI in Google Cloud until that route has been implemented and deployed. Once the production domain is known, the intended callback will be:
+The source includes both `GET /api/oauth/youtube/start` and `GET /api/oauth/youtube/callback`. The production callback registered in the active Google OAuth client is:
 
 ```text
-https://YOUR-PRODUCTION-DOMAIN/api/oauth/youtube/callback
+https://nusghvideo-fqf8exqq.manus.space/api/oauth/youtube/callback
 ```
+
+For a Google OAuth consent screen in **Testing**, add the channel owner's Google account under **Google Auth Platform → Audience → Test users** before beginning authorization. A successful callback persists the channel record and encrypted OAuth token record server-side only; it does not publish, upload, or change a video's visibility.
 
 ## Security
 
