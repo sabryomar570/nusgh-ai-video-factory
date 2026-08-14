@@ -33,10 +33,10 @@ export function formatYouTubeConnectionStatus(channel: { channelTitle?: string |
   return ["<b>YouTube</b>", "الحالة: <b>متصلة خادميًا</b>", `القناة: <b>${channel.channelTitle ?? "غير مسماة"}</b>`, `آخر مزامنة: <b>${channel.lastSyncedAt ? channel.lastSyncedAt.toISOString() : "لم تُسجل بعد"}</b>`, "الرفع والنشر ما زالا مقيدين بالمراجعة البشرية الصريحة."].join("\n");
 }
 export function createVideoEntryUrl() { return "https://nusghvideo-fqf8exqq.manus.space/?create=video"; }
-export function formatConservativeDailyReport(report: { candidateCount: number; created: Array<{ ideaId: number; videoId: number; score: number; scheduledFor: string }>; skipped?: string }) {
+export function formatConservativeDailyReport(report: { candidateCount: number; created: Array<{ ideaId: number; videoId: number; score: number; scheduledFor: string }>; skipped?: string; analyticsStatus?: string }) {
   if (report.skipped) return `<b>تقرير نُسغ اليومي</b>\nالأتمتة المحافظة لم تبدأ: <b>${report.skipped}</b>\nلم يُنشأ صوت أو رندر أو نشر.`;
   const rows = report.created.length ? report.created.map(item => `• فكرة #${item.ideaId} → فيديو #${item.videoId} — <b>${item.score}/100</b> — مراجعة فكرة`).join("\n") : "• لا توجد فكرة جديدة تجاوزت بوابات الاختيار المحافظة اليوم.";
-  return [`<b>تقرير نُسغ اليومي</b>`, `إشارات البحث المقبولة: <b>${report.candidateCount}</b>`, `أضيفت للمراجعة: <b>${report.created.length}</b>`, rows, "لم يُنشأ صوت أو رندر أو نشر. كل الإدخالات تنتظر مراجعة الفكرة."].join("\n");
+  return [`<b>تقرير نُسغ اليومي</b>`, `إشارات البحث المقبولة: <b>${report.candidateCount}</b>`, `أضيفت للمراجعة: <b>${report.created.length}</b>`, rows, `التحليلات: ${report.analyticsStatus ?? "لم تُشغّل"}`, "لم يُنشأ صوت أو رندر أو نشر. كل الإدخالات تنتظر مراجعة الفكرة."].join("\n");
 }
 
 function mainKeyboard() { return { inline_keyboard: [[{ text: "إنشاء فيديو", callback_data: "create_video" }, { text: "الأفكار", callback_data: "ideas" }], [{ text: "المشاريع", callback_data: "projects" }, { text: "الطابور", callback_data: "queue" }], [{ text: "تشغيل الدفعة", callback_data: "run_queue" }, { text: "المعاينة", callback_data: "preview" }], [{ text: "التحليلات", callback_data: "analytics" }, { text: "YouTube", callback_data: "youtube" }], [{ text: "الجدولة", callback_data: "scheduler" }, { text: "الإعدادات", callback_data: "settings" }], [{ text: "المزودون", callback_data: "providers" }, { text: "صحة النظام", callback_data: "health" }], [{ text: "وضع الأتمتة", callback_data: "automation_mode" }]] }; }

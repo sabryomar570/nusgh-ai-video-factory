@@ -6,6 +6,7 @@ import { sdk } from "../_core/sdk";
 import { fetchDailyTrendCandidates, nextInternalPublishingSlot } from "./conservative-intelligence";
 import { createConservativeIdeaReview, getConservativeAutopilotSettings } from "./repository";
 import { sendConservativeDailyReport } from "./telegram";
+import { syncChannelAnalytics } from "./youtube-analytics";
 
 export function canRunScheduledAutopilot(user: { isCron?: boolean; taskUid?: string }) {
   return Boolean(user.isCron && user.taskUid);
@@ -45,13 +46,15 @@ export async function dailyAutopilotHandler(req: Request, res: Response) {
     if (!schedule) return res.json({ ok: true, skipped: "orphan" });
     if (!schedule.isEnabled) return res.json({ ok: true, skipped: "disabled" });
     const result = await runConservativeDailyAutopilot(schedule.projectId);
+    let analyticsStatus = "غير متاحة أو تحتاج إعادة ربط YouTube";
+    try { await syncChannelAnalytics(schedule.projectId, 28); analyticsStatus = "تمت مزامنة قراءة فقط"; } catch { /* التحليلات ليست سببًا لإيقاف طابور المراجعة */ }
     await db.update(schedules).set({ lastRunAt: new Date() }).where(eq(schedules.id, schedule.id));
     const ownerChatId = Number(process.env.TELEGRAM_OWNER_USER_ID);
     let reportDelivery = "not_configured";
     if (Number.isSafeInteger(ownerChatId) && ownerChatId > 0) {
-      try { await sendConservativeDailyReport(ownerChatId, result); reportDelivery = "sent"; } catch { reportDelivery = "failed"; }
+      try { await sendConservativeDailyReport(ownerChatId, { ...result, analyticsStatus }); reportDelivery = "sent"; } catch { reportDelivery = "failed"; }
     }
-    return res.json({ ok: true, mode: "conservative_review_gated", result, reportDelivery });
+    return res.json({ ok: true, mode: "conservative_review_gated", result: { ...result, analyticsStatus }, reportDelivery });
   } catch (error) {
     return res.status(500).json({ error: error instanceof Error ? error.message : "daily_autopilot_failed", timestamp: new Date().toISOString() });
   }

@@ -348,14 +348,14 @@ export async function createConservativeIdeaReview(input: { projectId: number; c
     confidence: "medium",
     score: input.candidate.score,
     source: "daily_trends_rss",
-    metadata: { scoring: { trendSignal: input.candidate.trendSignal, freshness: input.candidate.freshness, audienceRelevance: input.candidate.audienceRelevance, competitionOpportunity: input.candidate.competitionOpportunity, viralPotential: input.candidate.viralPotential, retentionPotential: input.candidate.retentionPotential, productionFeasibility: input.candidate.productionFeasibility }, sourceUrl: input.candidate.sourceUrl, publisher: input.candidate.publisher },
+    metadata: { scoring: { trendSignal: input.candidate.trendSignal, freshness: input.candidate.freshness, audienceRelevance: input.candidate.audienceRelevance, competitionOpportunity: input.candidate.competitionOpportunity, viralPotential: input.candidate.viralPotential, retentionPotential: input.candidate.retentionPotential, productionFeasibility: input.candidate.productionFeasibility }, sourceUrl: input.candidate.sourceUrl, publisher: input.candidate.publisher, sourceCount: input.candidate.supportingSources.length },
   });
   const idea = (await db.select().from(ideas).where(eq(ideas.projectId, input.projectId)).orderBy(desc(ideas.id)).limit(1))[0];
   if (!idea) throw new Error("تعذر حفظ الفكرة المرشحة.");
   await db.insert(videos).values({ projectId: input.projectId, ideaId: idea.id, title: idea.title, videoType: "short", status: "awaiting_review", riskLevel: input.candidate.riskLevel, targetDurationSeconds: 55, automationMode: "full_review", requiresHumanReview: true, scheduledFor: input.scheduledFor });
   const video = (await db.select().from(videos).where(eq(videos.projectId, input.projectId)).orderBy(desc(videos.id)).limit(1))[0];
   if (!video) throw new Error("تعذر إنشاء مشروع مراجعة الفكرة.");
-  await db.insert(sources).values({ projectId: input.projectId, videoId: video.id, title: input.candidate.topic, sourceUrl: input.candidate.sourceUrl, publisher: input.candidate.publisher, sourceType: "trend_signal", excerpt: "إشارة اكتشاف موضوع فقط؛ ليست إثباتًا لادعاء أو حقيقة.", reliabilityScore: 45, metadata: { role: "discovery_only" } });
+  await db.insert(sources).values(input.candidate.supportingSources.map((source, index) => ({ projectId: input.projectId, videoId: video.id, title: source.title, sourceUrl: source.sourceUrl, publisher: source.publisher, sourceType: index === 0 ? "trend_signal" : "trend_related_news", excerpt: source.excerpt, reliabilityScore: index === 0 ? 45 : 55, metadata: { role: "discovery_only", sourcePosition: index + 1 } })));
   await db.insert(approvals).values({ projectId: input.projectId, videoId: video.id, approvalType: "idea", status: "pending", requestedBy: "conservative_daily_autopilot" });
   await createAuditEntry({ projectId: input.projectId, actorType: "system", action: "review_requested", entityType: "video", entityId: String(video.id), summary: "أضيفت فكرة يومية تلقائيًا إلى طابور مراجعة الفكرة دون إنتاج أو نشر.", context: { ideaId: idea.id, score: input.candidate.score, scheduledFor: input.scheduledFor.toISOString(), sourceUrl: input.candidate.sourceUrl } });
   return { created: true as const, idea, video };

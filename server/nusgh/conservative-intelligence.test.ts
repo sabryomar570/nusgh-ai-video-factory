@@ -14,8 +14,8 @@ describe("conservative daily idea intelligence", () => {
   });
 
   it("parses source-backed RSS items without inventing topics", () => {
-    const candidates = parseGoogleTrendsRss("<rss><channel><item><title><![CDATA[عادات الدراسة الذكية]]></title><link>https://example.org/trend</link></item></channel></rss>");
-    expect(candidates).toEqual([expect.objectContaining({ topic: "عادات الدراسة الذكية", sourceUrl: "https://example.org/trend" })]);
+    const candidates = parseGoogleTrendsRss("<rss><channel><item><title><![CDATA[عادات الدراسة الذكية]]></title><link>https://example.org/trend</link><ht:news_item><ht:news_item_title>بحث عن العادات</ht:news_item_title><ht:news_item_url>https://example.org/news</ht:news_item_url><ht:news_item_source>مصدر موثوق</ht:news_item_source></ht:news_item></item></channel></rss>");
+    expect(candidates).toEqual([expect.objectContaining({ topic: "عادات الدراسة الذكية", sourceUrl: "https://example.org/trend", supportingSources: expect.arrayContaining([expect.objectContaining({ sourceUrl: "https://example.org/news" })]) })]);
   });
 
   it("returns the next internal publishing window without publishing externally", () => {

@@ -46,8 +46,9 @@ describe("Telegram configuration", () => {
     expect(createVideoEntryUrl()).toBe("https://nusghvideo-fqf8exqq.manus.space/?create=video");
   });
   it("formats a conservative daily report without claiming production or publication", () => {
-    const report = formatConservativeDailyReport({ candidateCount: 4, created: [{ ideaId: 9, videoId: 11, score: 82, scheduledFor: "2026-08-14T16:00:00.000Z" }] });
+    const report = formatConservativeDailyReport({ candidateCount: 4, created: [{ ideaId: 9, videoId: 11, score: 82, scheduledFor: "2026-08-14T16:00:00.000Z" }], analyticsStatus: "تمت مزامنة قراءة فقط" });
     expect(report).toContain("82/100");
+    expect(report).toContain("تمت مزامنة قراءة فقط");
     expect(report).toContain("لم يُنشأ صوت أو رندر أو نشر");
   });
 });

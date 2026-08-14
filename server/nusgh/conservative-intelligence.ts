@@ -2,6 +2,7 @@ export type ResearchCandidate = {
   topic: string;
   sourceUrl: string;
   publisher: string;
+  supportingSources: Array<{ sourceUrl: string; title: string; publisher: string; excerpt: string }>;
   trendSignal: number;
   freshness: number;
   audienceRelevance: number;
@@ -53,10 +54,13 @@ export function parseGoogleTrendsRss(xml: string): ResearchCandidate[] {
       const topic = tag(block, "title");
       const sourceUrl = tag(block, "link");
       if (!topic || !sourceUrl) return null;
+      const newsItems = block.match(/<ht:news_item>[\s\S]*?<\/ht:news_item>/gi) ?? [];
+      const supportingSources = newsItems.map(news => ({ sourceUrl: tag(news, "ht:news_item_url"), title: tag(news, "ht:news_item_title"), publisher: tag(news, "ht:news_item_source"), excerpt: `مصدر إخباري مرتبط بإشارة الاتجاه «${topic}».` })).filter((source): source is { sourceUrl: string; title: string; publisher: string; excerpt: string } => Boolean(source.sourceUrl && source.title && source.publisher));
       return {
         topic,
         sourceUrl,
         publisher: "Google Trends Daily RSS",
+        supportingSources: [{ sourceUrl, title: topic, publisher: "Google Trends Daily RSS", excerpt: "إشارة اتجاه يومية لا تصلح وحدها لإثبات الادعاءات." }, ...supportingSources],
         trendSignal: 85,
         freshness: 90,
         audienceRelevance: 72,
