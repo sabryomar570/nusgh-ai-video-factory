@@ -15,6 +15,7 @@ import { ENV } from "./env";
 import { completeYouTubeOAuth, startYouTubeOAuth } from "../nusgh/youtube-oauth";
 import { registerArabicVoiceProvider } from "../nusgh/voice";
 import { users } from "../../drizzle/schema";
+import { dailyAutopilotHandler } from "../nusgh/daily-autopilot";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -68,6 +69,7 @@ async function startServer() {
     "/api/telegram/webhook",
     createTelegramWebhookHandler(resolveTelegramProjectId)
   );
+  app.post("/api/scheduled/daily-autopilot", dailyAutopilotHandler);
   // tRPC API
   app.use(
     "/api/trpc",
