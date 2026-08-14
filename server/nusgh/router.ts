@@ -13,6 +13,7 @@ import {
   listProjectProviders,
   listProjectVideos,
 } from "./repository";
+import { syncChannelAnalytics } from "./youtube-analytics";
 
 async function projectForCaller(userId: number) {
   return ensureNusghProject(userId);
@@ -39,6 +40,18 @@ export const nusghRouter = router({
     const project = await projectForCaller(ctx.user.id);
     return listProjectProviders(project.id);
   }),
+  syncAnalytics: adminProcedure
+    .input(z.object({ days: z.number().int().min(1).max(90).default(28) }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await projectForCaller(ctx.user.id);
+      try {
+        const result = await syncChannelAnalytics(project.id, input.days);
+        await createAuditEntry({ projectId: project.id, actorUserId: ctx.user.id, actorType: "owner", action: "updated", entityType: "analytics_snapshot", entityId: String(result.snapshotId ?? "unknown"), summary: "تمت مزامنة تحليلات YouTube للقراءة فقط.", context: { days: input.days } });
+        return result;
+      } catch (error) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "تعذر جلب تحليلات YouTube." });
+      }
+    }),
   createIdea: adminProcedure
     .input(
       z.object({
