@@ -1,5 +1,25 @@
 import { claimJob, completeJob, failOrRetryJob, stopJobForReview } from "./queue";
 import { providerRegistry } from "./providers";
+import { requestInitialVideoReview } from "./repository";
+
+export function pipelineInitializeReviewReason(jobType: string, videoId?: number | null) {
+  if (jobType !== "pipeline.initialize") return "هذه الدالة مخصصة لمهمة pipeline.initialize فقط.";
+  if (!videoId) return "مهمة بدء خط الإنتاج لا تحتوي على معرف فيديو صالح.";
+  return "تم إنشاء الفكرة والفيديو؛ ينتظران اعتماد المالك قبل بدء البحث والإنتاج.";
+}
+
+export async function executePipelineInitializeJob(jobId: number) {
+  const job = await claimJob(jobId);
+  if (!job) return { state: "not_claimed" as const };
+  const reason = pipelineInitializeReviewReason(job.jobType, job.videoId);
+  if (job.jobType !== "pipeline.initialize" || !job.videoId) {
+    const state = await failOrRetryJob(job, reason);
+    return { state, reason };
+  }
+  await requestInitialVideoReview({ projectId: job.projectId, videoId: job.videoId, requestedBy: "pipeline.initialize" });
+  await stopJobForReview(job.id, reason);
+  return { state: "requires_review" as const, reason };
+}
 
 export async function executeProviderJob(jobId: number) {
   const job = await claimJob(jobId);

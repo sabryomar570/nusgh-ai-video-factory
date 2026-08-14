@@ -4,7 +4,7 @@ const queueMocks = vi.hoisted(() => ({ claimJob: vi.fn(), completeJob: vi.fn(), 
 vi.mock("./queue", () => queueMocks);
 
 import { providerRegistry } from "./providers";
-import { executeProviderJob } from "./worker";
+import { executeProviderJob, pipelineInitializeReviewReason } from "./worker";
 
 describe("provider job worker", () => {
   beforeEach(() => {
@@ -17,5 +17,9 @@ describe("provider job worker", () => {
     expect(outcome.state).toBe("requires_review");
     expect(queueMocks.stopJobForReview).toHaveBeenCalledWith(4, "حقوق الاستخدام تحتاج مراجعة");
     expect(queueMocks.completeJob).not.toHaveBeenCalled();
+  });
+  it("requires a valid video and owner review at pipeline initialization", () => {
+    expect(pipelineInitializeReviewReason("pipeline.initialize", 7)).toContain("ينتظران اعتماد المالك");
+    expect(pipelineInitializeReviewReason("pipeline.initialize")).toContain("معرف فيديو");
   });
 });

@@ -147,6 +147,16 @@ export async function decideVideoApproval(input: {
   return video[0];
 }
 
+export async function requestInitialVideoReview(input: { projectId: number; videoId: number; requestedBy: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const video = (await db.select().from(videos).where(and(eq(videos.id, input.videoId), eq(videos.projectId, input.projectId))).limit(1))[0];
+  if (!video) throw new Error("الفيديو المطلوب غير موجود داخل مشروع نُسغ.");
+  await db.update(videos).set({ status: "awaiting_review", requiresHumanReview: true }).where(eq(videos.id, input.videoId));
+  await db.insert(approvals).values({ projectId: input.projectId, videoId: input.videoId, approvalType: "idea", status: "pending", requestedBy: input.requestedBy });
+  return video;
+}
+
 export async function createIdea(input: {
   projectId: number;
   title: string;
