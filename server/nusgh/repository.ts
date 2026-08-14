@@ -110,6 +110,29 @@ export async function listProjectProviders(projectId: number) {
   return db.select().from(providers).where(eq(providers.projectId, projectId)).orderBy(asc(providers.providerType));
 }
 
+export async function setElevenLabsVoiceId(projectId: number, voiceId: string) {
+  const normalized = voiceId.trim();
+  if (!/^[A-Za-z0-9_-]{4,160}$/.test(normalized)) throw new Error("Voice ID غير صالح.");
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const existing = (await db.select().from(providers).where(and(eq(providers.projectId, projectId), eq(providers.adapterKey, "elevenlabs-tts-ar"))).limit(1))[0];
+  const configuration = { ...(existing?.configuration ?? {}), voiceId: normalized, modelId: "eleven_multilingual_v2" };
+  if (existing) {
+    await db.update(providers).set({ configuration, isEnabled: true, status: "limited", capabilityNotes: "Voice ID مهيأ؛ يظل الصوت مقيدًا بمراجعة الحقوق والحصة." }).where(eq(providers.id, existing.id));
+  } else {
+    await db.insert(providers).values({ projectId, providerType: "tts", adapterKey: "elevenlabs-tts-ar", displayName: "ElevenLabs Text-to-Speech (Arabic)", status: "limited", isEnabled: true, isFallback: false, freeTierStatus: "free_tier_limited", configuration, capabilityNotes: "Voice ID مهيأ؛ يظل الصوت مقيدًا بمراجعة الحقوق والحصة." });
+  }
+  return (await db.select().from(providers).where(and(eq(providers.projectId, projectId), eq(providers.adapterKey, "elevenlabs-tts-ar"))).limit(1))[0];
+}
+
+export async function getElevenLabsVoiceId(projectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const provider = (await db.select().from(providers).where(and(eq(providers.projectId, projectId), eq(providers.adapterKey, "elevenlabs-tts-ar"))).limit(1))[0];
+  const voiceId = provider?.configuration?.voiceId;
+  return typeof voiceId === "string" ? voiceId : null;
+}
+
 export async function getProjectById(projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
