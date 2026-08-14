@@ -40,6 +40,12 @@ async function resolveTelegramProjectId() {
   const configuredOwner = await database.getUserByOpenId(ENV.ownerOpenId);
   if (configuredOwner) return (await ensureNusghProject(configuredOwner.id)).id;
 
+  if (ENV.ownerOpenId) {
+    await database.upsertUser({ openId: ENV.ownerOpenId, name: "NUSGH Owner", role: "admin", loginMethod: "system", lastSignedIn: new Date() });
+    const provisionedOwner = await database.getUserByOpenId(ENV.ownerOpenId);
+    if (provisionedOwner) return (await ensureNusghProject(provisionedOwner.id)).id;
+  }
+
   const db = await database.getDb();
   if (!db) throw new Error("قاعدة بيانات المالك غير متاحة.");
   const admins = await db.select().from(users).where(eq(users.role, "admin")).limit(2);
