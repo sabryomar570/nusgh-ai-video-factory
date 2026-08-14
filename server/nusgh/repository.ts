@@ -127,18 +127,20 @@ export async function decideVideoApproval(input: {
   projectId: number;
   videoId: number;
   decision: "approved" | "rejected" | "requires_changes";
+  approvalType?: "idea" | "final_video";
   actorUserId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
   const video = await db.select().from(videos).where(and(eq(videos.id, input.videoId), eq(videos.projectId, input.projectId))).limit(1);
   if (!video[0]) throw new Error("الفيديو المطلوب غير موجود داخل مشروع نُسغ.");
-  const nextStatus = input.decision === "approved" ? "approved" : input.decision === "rejected" ? "cancelled" : "draft";
+  const approvalType = input.approvalType ?? "final_video";
+  const nextStatus = input.decision === "approved" ? (approvalType === "idea" ? "researching" : "approved") : input.decision === "rejected" ? "cancelled" : "draft";
   await db.update(videos).set({ status: nextStatus, requiresHumanReview: input.decision !== "approved" }).where(eq(videos.id, input.videoId));
   await db.insert(approvals).values({
     projectId: input.projectId,
     videoId: input.videoId,
-    approvalType: "final_video",
+    approvalType,
     status: input.decision,
     requestedBy: "telegram_control_center",
     decidedByUserId: input.actorUserId,
