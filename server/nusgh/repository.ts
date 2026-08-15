@@ -2,18 +2,24 @@ import { and, asc, count, desc, eq, inArray, lte } from "drizzle-orm";
 import {
   assetLicenses,
   assets,
+  analyticsSnapshots,
   audioTracks,
   approvals,
   auditLogs,
+  claims,
   ideas,
+  jobLogs,
   jobs,
   projects,
   providers,
+  renders,
   schedules,
   scenes,
   scripts,
   settings,
   sources,
+  thumbnails,
+  videoMetadata,
   videos,
   youtubeChannels,
   type Project,
@@ -137,6 +143,40 @@ export async function listProjectIdeas(projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
   return db.select().from(ideas).where(eq(ideas.projectId, projectId)).orderBy(desc(ideas.updatedAt)).limit(20);
+}
+
+export async function deleteIdeaAndContent(input: { projectId: number; ideaId: number; actorUserId?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const idea = (await db.select().from(ideas).where(and(eq(ideas.projectId, input.projectId), eq(ideas.id, input.ideaId))).limit(1))[0];
+  if (!idea) throw new Error("الفكرة غير موجودة أو لا تنتمي إلى مشروع نُسغ.");
+  const linkedVideos = await db.select({ id: videos.id }).from(videos).where(and(eq(videos.projectId, input.projectId), eq(videos.ideaId, input.ideaId)));
+  const videoIds = linkedVideos.map(video => video.id);
+  const linkedJobs = videoIds.length ? await db.select({ id: jobs.id }).from(jobs).where(inArray(jobs.videoId, videoIds)) : [];
+  const jobIds = linkedJobs.map(job => job.id);
+  const linkedAssets = videoIds.length ? await db.select({ id: assets.id }).from(assets).where(inArray(assets.videoId, videoIds)) : [];
+  const assetIds = linkedAssets.map(asset => asset.id);
+
+  if (jobIds.length) await db.delete(jobLogs).where(inArray(jobLogs.jobId, jobIds));
+  if (assetIds.length) await db.delete(assetLicenses).where(inArray(assetLicenses.assetId, assetIds));
+  if (videoIds.length) {
+    await db.delete(approvals).where(inArray(approvals.videoId, videoIds));
+    await db.delete(renders).where(inArray(renders.videoId, videoIds));
+    await db.delete(thumbnails).where(inArray(thumbnails.videoId, videoIds));
+    await db.delete(videoMetadata).where(inArray(videoMetadata.videoId, videoIds));
+    await db.delete(audioTracks).where(inArray(audioTracks.videoId, videoIds));
+    await db.delete(assets).where(inArray(assets.videoId, videoIds));
+    await db.delete(scenes).where(inArray(scenes.videoId, videoIds));
+    await db.delete(claims).where(inArray(claims.videoId, videoIds));
+    await db.delete(scripts).where(inArray(scripts.videoId, videoIds));
+    await db.delete(sources).where(inArray(sources.videoId, videoIds));
+    await db.delete(analyticsSnapshots).where(inArray(analyticsSnapshots.videoId, videoIds));
+    if (jobIds.length) await db.delete(jobs).where(inArray(jobs.id, jobIds));
+    await db.delete(videos).where(inArray(videos.id, videoIds));
+  }
+  await db.delete(ideas).where(and(eq(ideas.projectId, input.projectId), eq(ideas.id, input.ideaId)));
+  await createAuditEntry({ projectId: input.projectId, actorUserId: input.actorUserId, actorType: input.actorUserId ? "owner" : "system", action: "deleted", entityType: "idea", entityId: String(input.ideaId), summary: "حذف المالك فكرة ومشاريع الفيديو والوظائف التابعة لها من قاعدة البيانات.", context: { title: idea.title, deletedVideoIds: videoIds, deletedJobIds: jobIds, storageNote: "تبقى كائنات التخزين غير المشار إليها غير قابلة للوصول من النظام." } });
+  return { ideaId: idea.id, title: idea.title, deletedVideoIds: videoIds, deletedJobIds: jobIds };
 }
 
 export async function listProjectSchedules(projectId: number) {

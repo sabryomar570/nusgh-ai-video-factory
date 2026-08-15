@@ -70,6 +70,13 @@ export async function completeJob(jobId: number, result?: Record<string, unknown
   await logJob(jobId, "info", "اكتمل تنفيذ المهمة.");
 }
 
+export async function markJobAwaitingCallback(jobId: number, result?: Record<string, unknown>) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  await db.update(jobs).set({ status: "running", result }).where(eq(jobs.id, jobId));
+  await logJob(jobId, "info", "تم إطلاق مزود خارجي وينتظر callback موثقًا قبل إكمال المهمة.");
+}
+
 export async function stopJobForReview(jobId: number, reason: string, result?: Record<string, unknown>) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");

@@ -1,0 +1,60 @@
+name: NUSGH FFmpeg Render
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: NUSGH render job identifier
+        required: true
+        type: string
+      callback_url:
+        description: Production NUSGH base URL
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FFmpeg and Arabic fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-extra
+      - name: Fetch authenticated render manifest
+        env:
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          JOB_ID: ${{ inputs.job_id }}
+          CALLBACK_SECRET: ${{ secrets.NUSGH_RENDER_CALLBACK_SECRET }}
+        run: |
+          test -n "$CALLBACK_SECRET"
+          mkdir -p .render-workspace
+          curl --fail --silent --show-error --location \
+            -H "x-nusgh-render-secret: $CALLBACK_SECRET" \
+            "$CALLBACK_URL/api/render/jobs/$JOB_ID/manifest" \
+            -o .render-workspace/manifest.json
+      - name: Render and validate FINAL_VIDEO.mp4
+        run: node scripts/render-final-video.mjs .render-workspace/manifest.json .render-workspace/FINAL_VIDEO.mp4
+      - name: Return validated MP4 to NUSGH
+        env:
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          JOB_ID: ${{ inputs.job_id }}
+          CALLBACK_SECRET: ${{ secrets.NUSGH_RENDER_CALLBACK_SECRET }}
+        run: |
+          SHA256=$(sha256sum .render-workspace/FINAL_VIDEO.mp4 | awk '{print $1}')
+          TIMESTAMP=$(date +%s)
+          SIGNATURE=$(printf '%s' "$TIMESTAMP.$JOB_ID.$SHA256" | openssl dgst -sha256 -hmac "$CALLBACK_SECRET" -hex | sed 's/^.* //')
+          DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 .render-workspace/FINAL_VIDEO.mp4 | awk '{printf "%d", $1}')
+          curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors \
+            -X POST "$CALLBACK_URL/api/render/callback" \
+            -H "Content-Type: video/mp4" \
+            -H "x-nusgh-render-job: $JOB_ID" \
+            -H "x-nusgh-render-timestamp: $TIMESTAMP" \
+            -H "x-nusgh-render-sha256: $SHA256" \
+            -H "x-nusgh-render-signature: $SIGNATURE" \
+            -H "x-nusgh-render-duration: $DURATION" \
+            --data-binary @.render-workspace/FINAL_VIDEO.mp4

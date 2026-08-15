@@ -56,3 +56,12 @@
 - [ ] اختبار مسار Research → Scoring → Script Draft → Fact Check → Queue → Internal Schedule → Telegram Report وتوثيق المحجوب
 - [x] تنفيذ مرحلة Daily Research متعددة المصادر وتخزين source URLs وpublishers وexcerpts موثقة لكل فكرة قبل إدخالها لطابور المراجعة
 - [ ] إضافة تحقق تشغيلي يوثق أن Heartbeat المحافظ ينشئ Idea وVideo review وSource وتقرير Telegram فعليًا بعد النشر
+- [x] إجراء Full System Audit read-only بالأرقام والسجل الزمني وحالة YouTube والمشاريع والاختناقات دون تشغيل أو تعديل أي Job
+- [ ] تقييم متطلبات NUSGH Video Factory الجديدة وتحديد الفجوة الفعلية بين Pipeline المجدول ورندر MP4 وتسليم Telegram
+- [ ] تنفيذ إعدادات جدولة إنتاج قابلة للتحكم تشمل عدد الفيديوهات ومواعيد Africa/Cairo ومفاتيح Research وTTS وRender وTelegram
+- [ ] تنفيذ انتقال Job مجدول مستقل لكل وقت إنتاج مع انتظار قرار المالك فقط بعد تسليم فيديو فعلي
+- [x] تنظيف بيانات الأفكار ومشاريع الفيديو التجريبية القديمة من قاعدة البيانات بعد إعداد حذف آمن قابل للتدقيق
+- [x] إضافة حذف فكرة من Telegram للمالك فقط مع تأكيد وحذف أو إلغاء غير هدّام وسجل تدقيق
+- [ ] إضافة GitHub Actions وFFmpeg لرندر FINAL_VIDEO.mp4 حقيقي وإرجاعه بشكل موثق وآمن إلى NUSGH
+- [ ] استبدال التدفق المحافظ بمراحل إنتاج مستقلة دون موافقات تحريرية مسبقة مع إبقاء Safety Override وWAITING_FOR_OWNER بعد التسليم
+- [ ] تحويل واجهة التحكم إلى Telegram-first وتعطيل روابط إدارة الويب دون إزالة خادم التكاملات وOAuth

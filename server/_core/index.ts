@@ -16,6 +16,7 @@ import { completeYouTubeOAuth, startYouTubeOAuth } from "../nusgh/youtube-oauth"
 import { registerArabicVoiceProvider } from "../nusgh/voice";
 import { users } from "../../drizzle/schema";
 import { dailyAutopilotHandler } from "../nusgh/daily-autopilot";
+import { githubRenderCallbackHandler, githubRenderManifestHandler, registerGithubRenderProvider } from "../nusgh/github-render";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -56,8 +57,10 @@ async function resolveTelegramProjectId() {
 
 async function startServer() {
   registerArabicVoiceProvider();
+  registerGithubRenderProvider();
   const app = express();
   const server = createServer(app);
+  app.post("/api/render/callback", express.raw({ type: "video/mp4", limit: "50mb" }), githubRenderCallbackHandler);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -70,6 +73,7 @@ async function startServer() {
     createTelegramWebhookHandler(resolveTelegramProjectId)
   );
   app.post("/api/scheduled/daily-autopilot", dailyAutopilotHandler);
+  app.get("/api/render/jobs/:jobId/manifest", githubRenderManifestHandler);
   // tRPC API
   app.use(
     "/api/trpc",

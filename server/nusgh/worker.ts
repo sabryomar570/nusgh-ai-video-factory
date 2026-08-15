@@ -1,4 +1,4 @@
-import { claimJob, completeJob, failOrRetryJob, stopJobForReview } from "./queue";
+import { claimJob, completeJob, failOrRetryJob, markJobAwaitingCallback, stopJobForReview } from "./queue";
 import { providerRegistry } from "./providers";
 import { findDueJobs, requestInitialVideoReview } from "./repository";
 
@@ -42,6 +42,10 @@ export async function executeProviderJob(jobId: number) {
   if (!result.ok) {
     const state = await failOrRetryJob(job, result.error ?? "فشل تنفيذ المزود.");
     return { state, result };
+  }
+  if (result.output?.awaitingCallback === true) {
+    await markJobAwaitingCallback(job.id, result.output);
+    return { state: "awaiting_callback" as const, result };
   }
   await completeJob(job.id, result.output);
   return { state: "completed" as const, result };

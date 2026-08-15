@@ -8,4 +8,6 @@ export const ENV = {
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   elevenLabsApiKey: process.env.ELEVENLABS_API_KEY ?? "",
+  githubRenderToken: process.env.NUSGH_GITHUB_RENDER_TOKEN ?? "",
+  renderCallbackSecret: process.env.NUSGH_RENDER_CALLBACK_SECRET ?? "",
 };
