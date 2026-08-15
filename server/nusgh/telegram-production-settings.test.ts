@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseProductionScheduleCommand, parseStageToggleCommand } from "./telegram";
+import { parseProductionScheduleCommand, parseStageToggleCommand, parseTimeZoneCommand } from "./telegram";
 
 describe("Telegram production settings", () => {
   it("accepts a bounded daily limit and clean Cairo production times", () => {
@@ -10,5 +10,10 @@ describe("Telegram production settings", () => {
   it("accepts only explicitly allowed stage toggles", () => {
     expect(parseStageToggleCommand("render off")).toEqual({ stage: "render", enabled: false });
     expect(parseStageToggleCommand("youtube on")).toBeNull();
+  });
+
+  it("accepts valid IANA zones while rejecting invalid time zone values", () => {
+    expect(parseTimeZoneCommand("Africa/Cairo")).toBe("Africa/Cairo");
+    expect(parseTimeZoneCommand("Not/AZone")).toBeNull();
   });
 });

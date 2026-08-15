@@ -8,11 +8,11 @@ vi.hoisted(() => {
 
 vi.mock("./daily-autopilot", () => ({ runConservativeDailyAutopilot: vi.fn() }));
 
-import { createTelegramWebhookHandler } from "./telegram";
+import { createTelegramWebhookHandler, resetTelegramControlMessagesForTest } from "./telegram";
 import { runConservativeDailyAutopilot } from "./daily-autopilot";
 
 describe("Telegram create-video callback", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); resetTelegramControlMessagesForTest(); });
 
   it("sends Telegram-native creation instructions instead of a dashboard form URL", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ ok: true, result: true }), { status: 200, headers: { "content-type": "application/json" } }));
@@ -24,7 +24,8 @@ describe("Telegram create-video callback", () => {
     await handler({ header: vi.fn().mockReturnValue(process.env.TELEGRAM_WEBHOOK_SECRET), body: { callback_query: { id: "callback-1", from: { id: Number(process.env.TELEGRAM_OWNER_USER_ID) }, message: { chat: { id: 101 } }, data: "create_video" } } } as never, { status, json } as never);
 
     expect(status).toHaveBeenCalledWith(200);
-    const sendMessageBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as { text: string; reply_markup: { inline_keyboard: Array<Array<{ url?: string }>> } };
+    const sendCall = fetchMock.mock.calls.find(call => String(call[0]).endsWith("/sendMessage"));
+    const sendMessageBody = JSON.parse(sendCall?.[1]?.body as string) as { text: string; reply_markup: { inline_keyboard: Array<Array<{ url?: string }>> } };
     expect(sendMessageBody.text).toContain("/new short");
     expect(JSON.stringify(sendMessageBody.reply_markup)).not.toContain("?create=video");
   });
@@ -40,8 +41,27 @@ describe("Telegram create-video callback", () => {
     await handler({ header: vi.fn().mockReturnValue(process.env.TELEGRAM_WEBHOOK_SECRET), body: { callback_query: { id: "callback-2", from: { id: Number(process.env.TELEGRAM_OWNER_USER_ID) }, message: { chat: { id: 101 } }, data: "daily_intelligence" } } } as never, { status, json } as never);
 
     expect(runConservativeDailyAutopilot).toHaveBeenCalledWith(7);
-    const sendMessageBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as { text: string };
+    const sendCall = fetchMock.mock.calls.find(call => String(call[0]).endsWith("/sendMessage"));
+    const sendMessageBody = JSON.parse(sendCall?.[1]?.body as string) as { text: string };
     expect(sendMessageBody.text).toContain("82/100");
     expect(sendMessageBody.text).toContain("لم يُنشأ صوت أو رندر أو نشر");
+  });
+});
+
+describe("Telegram control-panel replacement", () => {
+  afterEach(() => { vi.unstubAllGlobals(); resetTelegramControlMessagesForTest(); });
+
+  it("deletes the previous bot panel before delivering the next control panel", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => new Response(JSON.stringify({ ok: true, result: url.endsWith("/sendMessage") ? { message_id: 701 } : true }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const status = vi.fn().mockReturnThis();
+    const json = vi.fn();
+    const handler = createTelegramWebhookHandler(async () => 7);
+    const base = { from: { id: Number(process.env.TELEGRAM_OWNER_USER_ID) }, message: { chat: { id: 101 }, message_id: 701 } };
+
+    await handler({ header: vi.fn().mockReturnValue(process.env.TELEGRAM_WEBHOOK_SECRET), body: { callback_query: { id: "one", ...base, data: "dashboard" } } } as never, { status, json } as never);
+    await handler({ header: vi.fn().mockReturnValue(process.env.TELEGRAM_WEBHOOK_SECRET), body: { callback_query: { id: "two", ...base, data: "settings" } } } as never, { status, json } as never);
+
+    expect(fetchMock.mock.calls.some(call => String(call[0]).endsWith("/deleteMessage"))).toBe(true);
   });
 });

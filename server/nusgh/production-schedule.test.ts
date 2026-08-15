@@ -11,4 +11,10 @@ describe("NUSGH production schedule", () => {
     expect(scheduledGenerationSlot(now, ["11:00"], "Africa/Cairo")).toMatchObject({ localTime: "11:00", dateKey: "2026-08-15" });
     expect(scheduledGenerationSlot(now, ["16:00"], "Africa/Cairo")).toBeNull();
   });
+
+  it("uses the configured time zone when calculating the same UTC instant", () => {
+    const now = new Date("2026-08-15T08:00:00.000Z");
+    expect(scheduledGenerationSlot(now, ["11:00"], "Asia/Riyadh")).toMatchObject({ localTime: "11:00" });
+    expect(scheduledGenerationSlot(now, ["11:00"], "Europe/London")).toBeNull();
+  });
 });
