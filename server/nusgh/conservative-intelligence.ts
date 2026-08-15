@@ -18,9 +18,24 @@ export const CONSERVATIVE_AUTOPILOT_DEFAULTS = {
   enabled: true,
   killSwitch: false,
   dailyIdeaLimit: 1,
+  dailyVideoLimit: 1,
   timezone: "Africa/Cairo",
   internalPublishingHours: [11, 16, 21],
+  generationTimes: ["11:00", "16:00", "21:00"],
 } as const;
+
+export function normalizeGenerationTimes(value: unknown, fallback: readonly string[] = CONSERVATIVE_AUTOPILOT_DEFAULTS.generationTimes) {
+  const values = Array.isArray(value) ? value : fallback;
+  return Array.from(new Set(values.filter((time): time is string => typeof time === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(time.trim())).map(time => time.trim()))).sort();
+}
+
+export function scheduledGenerationSlot(now = new Date(), generationTimes: readonly string[] = CONSERVATIVE_AUTOPILOT_DEFAULTS.generationTimes, timezone: string = CONSERVATIVE_AUTOPILOT_DEFAULTS.timezone) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+  const localTime = `${parts.hour}:${parts.minute}`;
+  const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
+  if (!generationTimes.includes(localTime)) return null;
+  return { dateKey, localTime, slotKey: `${dateKey}T${localTime}:${timezone}` };
+}
 
 const highRiskTerms = /(انتخابات|حرب|وفاة|قتل|كارثة|علاج|دواء|استثمار|أسهم|سياسة|politic|election|war|death|treatment|investment)/i;
 

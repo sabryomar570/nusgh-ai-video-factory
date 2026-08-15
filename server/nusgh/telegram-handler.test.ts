@@ -14,7 +14,7 @@ import { runConservativeDailyAutopilot } from "./daily-autopilot";
 describe("Telegram create-video callback", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("sends a dashboard form URL instead of a command-only instruction", async () => {
+  it("sends Telegram-native creation instructions instead of a dashboard form URL", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ ok: true, result: true }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const status = vi.fn().mockReturnThis();
@@ -25,8 +25,8 @@ describe("Telegram create-video callback", () => {
 
     expect(status).toHaveBeenCalledWith(200);
     const sendMessageBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as { text: string; reply_markup: { inline_keyboard: Array<Array<{ url?: string }>> } };
-    expect(sendMessageBody.text).not.toContain("/new short");
-    expect(sendMessageBody.reply_markup.inline_keyboard[0]?.[0]?.url).toBe("https://nusghvideo-fqf8exqq.manus.space/?create=video");
+    expect(sendMessageBody.text).toContain("/new short");
+    expect(JSON.stringify(sendMessageBody.reply_markup)).not.toContain("?create=video");
   });
 
   it("runs the conservative daily pipeline and reports review-only results from the Telegram button", async () => {

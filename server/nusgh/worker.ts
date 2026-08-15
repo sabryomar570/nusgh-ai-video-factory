@@ -1,4 +1,4 @@
-import { claimJob, completeJob, failOrRetryJob, markJobAwaitingCallback, stopJobForReview } from "./queue";
+import { claimJob, completeJob, failOrRetryJob, markJobAwaitingCallback, recoverStaleCallbackJobs, stopJobForReview } from "./queue";
 import { providerRegistry } from "./providers";
 import { findDueJobs, requestInitialVideoReview } from "./repository";
 
@@ -52,11 +52,12 @@ export async function executeProviderJob(jobId: number) {
 }
 
 export async function runDueJobsManually(projectId: number, limit = 5) {
+  const recoveredCallbacks = await recoverStaleCallbackJobs(projectId);
   const dueJobs = (await findDueJobs(projectId)).slice(0, Math.max(1, Math.min(limit, 10)));
   const outcomes: Array<{ jobId: number; state: string }> = [];
   for (const job of dueJobs) {
     const outcome = job.jobType === "pipeline.initialize" ? await executePipelineInitializeJob(job.id) : await executeProviderJob(job.id);
     outcomes.push({ jobId: job.id, state: outcome.state });
   }
-  return { scanned: dueJobs.length, outcomes, executionMode: "manual_on_demand" as const };
+  return { scanned: dueJobs.length, outcomes, recoveredCallbacks, executionMode: "manual_on_demand" as const };
 }

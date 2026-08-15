@@ -77,6 +77,21 @@ export async function markJobAwaitingCallback(jobId: number, result?: Record<str
   await logJob(jobId, "info", "تم إطلاق مزود خارجي وينتظر callback موثقًا قبل إكمال المهمة.");
 }
 
+export async function recoverStaleCallbackJobs(projectId: number, now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");
+  const running = await db.select().from(jobs).where(and(eq(jobs.projectId, projectId), eq(jobs.status, "running"), eq(jobs.jobType, "render.github_actions")));
+  const recovered: Array<{ jobId: number; state: "retrying" | "failed" | "requires_review" }> = [];
+  for (const job of running) {
+    if (!job.startedAt) continue;
+    const timeoutMs = Math.max(60, job.timeoutSeconds) * 1_000;
+    if (job.startedAt.getTime() + timeoutMs > now.getTime()) continue;
+    const state = await failOrRetryJob(job, "لم يصل callback موثق من GitHub Actions ضمن مهلة الرندر؛ ستطبق إعادة المحاولة المحدودة.");
+    recovered.push({ jobId: job.id, state });
+  }
+  return recovered;
+}
+
 export async function stopJobForReview(jobId: number, reason: string, result?: Record<string, unknown>) {
   const db = await getDb();
   if (!db) throw new Error("قاعدة البيانات غير متاحة حاليًا.");

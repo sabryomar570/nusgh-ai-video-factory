@@ -27,7 +27,7 @@ import {
 import { getDb } from "../db";
 import { reviewAsset, type AssetReviewInput } from "./asset-policy";
 import { enqueueJob } from "./queue";
-import { CONSERVATIVE_AUTOPILOT_DEFAULTS, type ScoredResearchCandidate } from "./conservative-intelligence";
+import { CONSERVATIVE_AUTOPILOT_DEFAULTS, normalizeGenerationTimes, type ScoredResearchCandidate } from "./conservative-intelligence";
 import { buildNusghRenderManifestFromRecordedArtifacts } from "./render-manifest";
 
 export const DEFAULT_PROJECT_SLUG = "nusgh-primary";
@@ -37,19 +37,28 @@ export type ConservativeAutopilotSettings = {
   enabled: boolean;
   killSwitch: boolean;
   dailyIdeaLimit: number;
+  dailyVideoLimit: number;
   timezone: string;
   internalPublishingHours: number[];
+  generationTimes: string[];
+  stages: { research: boolean; script: boolean; factCheck: boolean; tts: boolean; render: boolean; telegram: boolean };
 };
 
 function normalizeConservativeAutopilotSettings(value: unknown): ConservativeAutopilotSettings {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const rawHours = Array.isArray(input.internalPublishingHours) ? input.internalPublishingHours.filter((hour): hour is number => typeof hour === "number" && Number.isInteger(hour) && hour >= 0 && hour <= 23) : [];
+  const rawStages = input.stages && typeof input.stages === "object" ? input.stages as Record<string, unknown> : {};
+  const stage = (key: keyof ConservativeAutopilotSettings["stages"]) => typeof rawStages[key] === "boolean" ? rawStages[key] as boolean : true;
+  const dailyVideoLimit = typeof input.dailyVideoLimit === "number" ? Math.max(1, Math.min(10, Math.floor(input.dailyVideoLimit))) : typeof input.dailyIdeaLimit === "number" ? Math.max(1, Math.min(10, Math.floor(input.dailyIdeaLimit))) : CONSERVATIVE_AUTOPILOT_DEFAULTS.dailyVideoLimit;
   return {
     enabled: typeof input.enabled === "boolean" ? input.enabled : CONSERVATIVE_AUTOPILOT_DEFAULTS.enabled,
     killSwitch: typeof input.killSwitch === "boolean" ? input.killSwitch : CONSERVATIVE_AUTOPILOT_DEFAULTS.killSwitch,
-    dailyIdeaLimit: typeof input.dailyIdeaLimit === "number" ? Math.max(1, Math.min(3, Math.floor(input.dailyIdeaLimit))) : CONSERVATIVE_AUTOPILOT_DEFAULTS.dailyIdeaLimit,
+    dailyIdeaLimit: Math.min(3, dailyVideoLimit),
+    dailyVideoLimit,
     timezone: typeof input.timezone === "string" && input.timezone ? input.timezone : CONSERVATIVE_AUTOPILOT_DEFAULTS.timezone,
     internalPublishingHours: rawHours.length ? rawHours : [...CONSERVATIVE_AUTOPILOT_DEFAULTS.internalPublishingHours],
+    generationTimes: normalizeGenerationTimes(input.generationTimes),
+    stages: { research: stage("research"), script: stage("script"), factCheck: stage("factCheck"), tts: stage("tts"), render: stage("render"), telegram: stage("telegram") },
   };
 }
 
@@ -125,7 +134,7 @@ export async function updateConservativeAutopilotSettings(projectId: number, pat
   const current = await getConservativeAutopilotSettings(projectId);
   const next = normalizeConservativeAutopilotSettings({ ...current, ...patch });
   await db.insert(settings).values({ projectId, key: CONSERVATIVE_AUTOPILOT_SETTING_KEY, value: next, updatedByUserId }).onDuplicateKeyUpdate({ set: { value: next, updatedByUserId } });
-  await createAuditEntry({ projectId, actorUserId: updatedByUserId, actorType: updatedByUserId ? "owner" : "system", action: "updated", entityType: "automation_settings", entityId: CONSERVATIVE_AUTOPILOT_SETTING_KEY, summary: next.killSwitch ? "أوقف Kill Switch بدء الأتمتة المحافظة الجديدة." : "تم تحديث إعدادات الأتمتة المحافظة.", context: { enabled: next.enabled, killSwitch: next.killSwitch, dailyIdeaLimit: next.dailyIdeaLimit } });
+  await createAuditEntry({ projectId, actorUserId: updatedByUserId, actorType: updatedByUserId ? "owner" : "system", action: "updated", entityType: "automation_settings", entityId: CONSERVATIVE_AUTOPILOT_SETTING_KEY, summary: next.killSwitch ? "أوقف Kill Switch بدء الأتمتة المحافظة الجديدة." : "تم تحديث إعدادات الأتمتة المحافظة.", context: { enabled: next.enabled, killSwitch: next.killSwitch, dailyVideoLimit: next.dailyVideoLimit, generationTimes: next.generationTimes, stages: next.stages } });
   return next;
 }
 
